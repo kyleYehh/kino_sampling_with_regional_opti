@@ -469,7 +469,7 @@ bool PosChecker::getPolyTrajAttractPts(const Trajectory &front_traj, const Traje
           first_obs = false;
           collide_t_last = t;
           front_traj_pt = front_traj[i].getPos(t);
-          attract_pt = front_traj_pt + (front_traj_pt - pos);
+          attract_pt = front_traj_pt + (front_traj_pt - pos).normalized() * 0.5;
           att_pts.emplace_back(attract_pt[0], attract_pt[1], attract_pt[2]);
           t_s.emplace_back(std::max(t - 0.2, 0.0));
           t_e.emplace_back(std::min(t + 0.2, tau));

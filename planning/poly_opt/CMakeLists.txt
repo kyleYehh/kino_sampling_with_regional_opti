@@ -31,10 +31,15 @@ include_directories(
   ${EIGEN3_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
 )
+add_library(lmbm SHARED IMPORTED)
+
+set_target_properties(lmbm PROPERTIES IMPORTED_LOCATION ${PROJECT_SOURCE_DIR}/lib/lmbm.so)
 
 add_library( poly_opt 
   src/traj_optimizer.cpp
+  src/trunk_optimizer.cpp
 )
 target_link_libraries( poly_opt
   ${catkin_LIBRARIES} 
+  lmbm
 )

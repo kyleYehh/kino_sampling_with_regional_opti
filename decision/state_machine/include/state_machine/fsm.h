@@ -9,6 +9,7 @@
 #include "kino_plan/topo_prm.h"
 #include "visualization_utils/visualization_utils.h"
 #include "poly_opt/traj_optimizer.h"
+#include "poly_opt/nonsmooth_trunk_opt.h"
 #include "quadrotor_msgs/PolynomialTrajectory.h"
 #include "quadrotor_msgs/PositionCommand.h"
 #include "r3_plan/r3_planner.h"
@@ -58,6 +59,7 @@ private:
   shared_ptr<AstarPathFinder> astar_searcher_;
   KinodynamicAstar::Ptr kastar_traj_finder_;
   KinodynamicAstarJ::Ptr kastar_jerk_finder_;
+  shared_ptr<BranchOpt> trunk_opt_ptr_;
   
   // ros 
   ros::NodeHandle nh_;

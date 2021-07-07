@@ -18,7 +18,7 @@
 
   <!-- map generation -->
   <!--env for front-end compare-->
-  <node pkg="map_generator" name="random_forest" type="random_forest" output="screen" if="$(arg forest)">    
+  <!-- <node pkg="map_generator" name="random_forest" type="random_forest" output="screen" if="$(arg forest)">    
     <remap from="~odometry"   to="$(arg odom_topic)"/>    
     <param name="init_state_x"   value="$(arg init_x)"/>
     <param name="init_state_y"   value="$(arg init_y)"/>
@@ -36,10 +36,10 @@
     <param name="CircleShape/upper_circle_rad" value="2.0"/>        
     <param name="sensing/rate"   value="1.0"/>        
   </node>
-  <include file="$(find mockamap)/launch/mockamap.launch" unless="$(arg forest)"/>
+  <include file="$(find mockamap)/launch/mockamap.launch" unless="$(arg forest)"/> -->
 
   <!--env for w/ w/o compare-->
-  <!-- <node pkg="map_generator" type="map_generator_high.py" name="random_forest" output="screen">
+  <node pkg="map_generator" type="map_generator_high.py" name="random_forest" output="screen">
     <param name="map/x_size" value="30.0" type="double"/>
     <param name="map/y_size" value="30.0" type="double"/>
     <param name="map/z_size" value="3.5" type="double"/>
@@ -56,7 +56,7 @@
     <param name="rand_obs_scale" value="1.5" type="double"/>
     <param name="rand_obs_num" value="0" type="int"/>
 
-  </node> -->
+  </node>
 
   <!-- the param of wall in front-end benchmark-->>
   <!-- <node pkg="map_generator" type="map_generator_high.py" name="random_forest" output="screen">

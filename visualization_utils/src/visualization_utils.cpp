@@ -168,6 +168,10 @@ void VisualRviz::visualizeStates(const std::vector<StatePVA> &x, int trajectory_
     case OptimizedTraj:
         pos_point.color = Color::Red();
         pos_point.color.a = 1.0;
+pos_point.scale.x = 0.03;
+pos_point.scale.y = 0.03;
+pos_point.scale.z = 0.03;
+pos_point.type = visualization_msgs::Marker::POINTS;
         vel_vec.color = Color::Red();
         vel_vec.color.a = 1.0;
         acc_vec.color = Color::Red();
@@ -180,6 +184,10 @@ void VisualRviz::visualizeStates(const std::vector<StatePVA> &x, int trajectory_
     case FMTTraj:
         pos_point.color = Color::Chartreuse();
         pos_point.color.a = 1.0;
+pos_point.scale.x = 0.03;
+pos_point.scale.y = 0.03;
+pos_point.scale.z = 0.03;
+pos_point.type = visualization_msgs::Marker::POINTS;
         vel_vec.color = Color::Chartreuse();
         vel_vec.color.a = 1.0;
         acc_vec.color = Color::Chartreuse();
@@ -203,7 +211,7 @@ void VisualRviz::visualizeStates(const std::vector<StatePVA> &x, int trajectory_
 
     case TreeTraj:
         pos_point.color = Color::SteelBlue();
-        pos_point.color.a = 1.0;
+        pos_point.color.a = 0.3;
         pos_point.scale.x = 0.03;
         pos_point.scale.y = 0.03;
         pos_point.scale.z = 0.03;

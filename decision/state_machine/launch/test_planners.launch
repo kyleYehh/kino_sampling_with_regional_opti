@@ -3,16 +3,17 @@
   <arg name="odom_topic" value="/visual_slam/odom" />
   <arg name="depth_topic" value="/pcl_render_node/depth" />
   <arg name="global_env_pcd2_topic" value="/random_forest/all_map" />
-  <arg name="map_size_x" value="18.0" />
-  <arg name="map_size_y" value="70.0" />
-  <arg name="map_size_z" value="3.0" />
-  <arg name="origin_x" value=" -9.0" />
-  <arg name="origin_y" value=" -35.0" />
+  <arg name="map_size_x" value="58.0" />
+  <arg name="map_size_y" value="100.0" />
+  <arg name="map_size_z" value="3.5" />
+  <arg name="origin_x" value=" -29.0" />
+  <arg name="origin_y" value=" -50.0" />
   <arg name="origin_z" value=" -1.0" />
   <arg name="resolution" value="0.1" />
-  <arg name="vel_limit" value="7.0" />
-  <arg name="acc_limit" value="5.0" />
+  <arg name="vel_limit" value="5.0" />
+  <arg name="acc_limit" value="4.0" />
   <arg name="jerk_limit" value="15.0" />
+  <arg name="rho_time" value="0.01" />
   <arg name="global_test" value="true" />
 
   <node pkg="state_machine" type="test_planner_node" name="state_machine_node" output="screen">
@@ -66,7 +67,7 @@
     <param name="pos_checker/global_test" value="$(arg global_test)"/>
   
     <!-- kinorrt* params --> 
-    <param name="krrt/rho" value="0.01" type="double"/> <!-- the quadratic matrix R of u'Ru -->
+    <param name="krrt/rho" value="$(arg rho_time)" type="double"/> <!-- the quadratic matrix R of u'Ru -->
     <param name="krrt/vel_limit" value="$(arg vel_limit)" type="double" />
     <param name="krrt/acc_limit" value="$(arg acc_limit)" type="double" />
     <param name="krrt/jerk_limit" value="$(arg jerk_limit)" type="double" />
@@ -80,8 +81,9 @@
     <param name="krrt/rewire" value="true" type="bool" />
     <param name="krrt/use_regional_opt" value="false" type="bool" />
     <param name="krrt/test_convergency" value="true" type="bool" />
+    <param name="krrt/use_deform" value="true" type="bool" />
 
-    <param name="kfmt/rho" value="0.01" type="double"/> <!-- the quadratic matrix R of u'Ru -->
+    <param name="kfmt/rho" value="$(arg rho_time)" type="double"/> <!-- the quadratic matrix R of u'Ru -->
     <param name="kfmt/vel_limit" value="$(arg vel_limit)" type="double" />
     <param name="kfmt/acc_limit" value="$(arg acc_limit)" type="double" />
     <param name="kfmt/jerk_limit" value="$(arg jerk_limit)" type="double" />
@@ -116,7 +118,7 @@
     <param name="search/jerk/resolution_astar" value="$(arg resolution)" type="double"/>
     <param name="search/jerk/allocate_num" value="1000000" type="int"/>
     <param name="search/jerk/max_jerk" value="2.5" type="double"/>
-    <param name="search/jerk/rho" value="0.01" type="double"/>
+    <param name="search/jerk/rho" value="$(arg rho_time)" type="double"/>
     <param name="search/jerk/input_res" value="0.5" type="double"/>
     <param name="search/jerk/time_res" value="0.5" type="double"/>
     <param name="search/jerk/max_tau" value="1.0" type="double"/>
@@ -156,12 +158,23 @@
     <param name="optimization/jerk_limit" value="$(arg jerk_limit)" type="double" />
     <param name="optimization/max_iter_times" value="30" type="int" />
 
+    <param name="trunk_opt/rho" value="$(arg rho_time)" type="double" />
+    <param name="trunk_opt/vel_limit" value="$(arg vel_limit)" type="double" />
+    <param name="trunk_opt/acc_limit" value="$(arg acc_limit)" type="double" />
+    <param name="trunk_opt/jerk_limit" value="$(arg jerk_limit)" type="double" />
+    <param name="trunk_opt/max_iter_times" value="30" type="int" />
+    <param name="trunk_opt/discretization" value="10" type="int" />
+    <param name="trunk_opt/rho_pos" value="51200.0" type="double" />
+    <param name="trunk_opt/rho_vel" value="512.0" type="double" />
+    <param name="trunk_opt/rho_acc" value="512.0" type="double" />
+    <param name="trunk_opt/dist_tolerance" value="0.4" type="double" />
+
     <param name="test_plan/start_x" value="5.0" type="double"/>
     <param name="test_plan/start_y" value="30.0" type="double"/>
     <param name="test_plan/start_z" value="0.0" type="double"/>
     <param name="test_plan/use_optimization" value="false" type="bool"/>
-    <param name="test_plan/use_r3" value="true" type="bool"/>
-    <param name="test_plan/replan_time" value="2.0" type="double"/>
+    <param name="test_plan/use_r3" value="false" type="bool"/>
+    <param name="test_plan/replan_time" value="5.0" type="double"/>
     <param name="test_plan/use_bench" value="true" type="bool"/>
     <param name="test_plan/test_rrt_w" value="true" type="bool"/>
     <param name="test_plan/test_rrt_wo" value="true" type="bool"/>
@@ -169,31 +182,12 @@
     <param name="test_plan/test_a_triple" value="true" type="bool"/>
     <param name="test_plan/test_fmt_w" value="true" type="bool"/>
     <param name="test_plan/test_fmt_wo" value="true" type="bool"/>
-    <param name="test_plan/repeat_times" value="1" type="int"/>
+    <param name="test_plan/repeat_times" value="10" type="int"/>
     <param name="test_plan/ctrl_pt_dist" value="0.5" type="double"/>
     <param name="test_plan/max_vel" value="$(arg vel_limit)" type="double"/>
     <param name="test_plan/max_acc" value="$(arg acc_limit)" type="double"/>
     <param name="test_plan/max_jerk" value="$(arg jerk_limit)" type="double"/>
-
-    <param name="bspline/lambda1" value="10.0" type="double"/>
-    <param name="bspline/lambda2" value="5.0" type="double"/>
-    <param name="bspline/lambda3" value="0.00001" type="double"/>
-    <param name="bspline/lambda4" value="0.01" type="double"/>
-    <param name="bspline/lambda7" value="100.0" type="double"/>
-    <param name="bspline/dist0" value="0.4" type="double"/>
-    <param name="bspline/max_vel" value="$(arg vel_limit)" type="double"/>
-    <param name="bspline/max_acc" value="$(arg acc_limit)" type="double"/>
-    <param name="bspline/algorithm1" value="15" type="int"/>
-    <param name="bspline/algorithm2" value="11" type="int"/>
-    <param name="bspline/max_iteration_num1" value="2" type="int"/>
-    <param name="bspline/max_iteration_num2" value="300" type="int"/>
-    <param name="bspline/max_iteration_num3" value="200" type="int"/>
-    <param name="bspline/max_iteration_num4" value="200" type="int"/>
-    <param name="bspline/max_iteration_time1" value="0.0001" type="double"/>
-    <param name="bspline/max_iteration_time2" value="0.001" type="double"/>
-    <param name="bspline/max_iteration_time3" value="0.001" type="double"/>
-    <param name="bspline/max_iteration_time4" value="0.001" type="double"/>
-    <param name="bspline/order" value="3" type="int"/>
+    <param name="test_plan/file_name" value="/home/kai/ros_ws/krrt_with_ro_ws/src/kino_sampling_with_regional_opti/deform_test_data/forest.csv" type="string"/>
 
   </node>
   

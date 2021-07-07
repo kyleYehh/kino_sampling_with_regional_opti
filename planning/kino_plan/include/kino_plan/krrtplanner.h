@@ -9,6 +9,7 @@
 #include "bvp_solver.h"
 #include "bias_sampler.h"
 #include "poly_opt/traj_optimizer.h"
+#include "poly_opt/nonsmooth_trunk_opt.h"
 #include "r3_plan/a_star_search.h"
 
 #include <vector>
@@ -49,10 +50,14 @@ public:
   void setSearcher(const std::shared_ptr<AstarPathFinder> &searcher)
   {
     searcher_ = searcher;
-  }
+  };
+  void setTrunkOptimizer(const std::shared_ptr<BranchOpt> &ptr)
+  {
+    trunk_opt_ptr_ = ptr;
+  };
   int plan(Vector3d start_pos, Vector3d start_vel, Vector3d start_acc,
            Vector3d end_pos, Vector3d end_vel, Vector3d end_acc,
-           double search_time, const Vector3d &normal, const Vector3d &dire, bool need_consistancy, bool use_regional_opt);
+           double search_time, bool use_deform, bool use_regional_opt);
   void getTraj(Trajectory &traj)
   {
     traj = traj_;
@@ -100,6 +105,7 @@ private:
   bool debug_vis_;
   VisualRviz::Ptr vis_ptr_;
   void sampleWholeTree(const RRTNodePtr &root, vector<StatePVA> *vis_x, vector<Vector3d>& knots);
+  void sampleDeformedTrunk(const RRTNodePtr &node, vector<StatePVA> *vis_x, vector<Vector3d>& knots);
 
   RRTNodePtrVector start_tree_; //pre allocated in Constructor
   std::vector<StatePVA> orphans_;
@@ -124,7 +130,7 @@ private:
   double rho_;
   double v_mag_sample_;
   double vel_limit_, acc_limit_, jerk_limit_;
-  bool allow_orphan_, allow_close_goal_, stop_after_first_traj_found_, rewire_, use_regional_opt_;
+  bool allow_orphan_, allow_close_goal_, stop_after_first_traj_found_, rewire_;
   double search_time_;
   int tree_node_nums_, orphan_nums_;
 
@@ -142,6 +148,8 @@ private:
   // regional optimizer
   TrajOptimizer::Ptr optimizer_ptr_;
   std::shared_ptr<AstarPathFinder> searcher_;
+  std::shared_ptr<BranchOpt> trunk_opt_ptr_;
+  bool use_regional_opt_, use_deform_;
 
   // for replan
   Vector3d replan_normal_, replan_dire_;

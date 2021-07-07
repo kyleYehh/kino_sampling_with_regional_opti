@@ -418,4 +418,25 @@ void IntegratorBVP::calCoeffFromTau(double tau, CoefficientMat &coeff)
   coeff(2, 5) = x0_[2];
 }
 
+double IntegratorBVP::calCostAccKnown(const VectorXd &x0, const VectorXd &x1, double T)
+{
+  double t1 = 3*(x0[6]*x0[6] + x0[7]*x0[7] + x0[8]*x0[8] + x1[6]*x1[6] + x1[7]*x1[7] + x1[8]*x1[8]);
+  double t2 = t1 - 2*(x0[6]*x1[6] + x0[7]*x1[7] + x0[8]*x1[8]);
+  double t3 = 3*(x0[3]*x0[6] + x0[4]*x0[7] + x0[5]*x0[8] - x1[3]*x1[6] - x1[4]*x1[7] - x1[5]*x1[8]);
+  double t4 = t3 + 2*(x0[6]*x1[3] + x0[7]*x1[4] + x0[8]*x1[5] - x0[3]*x1[6] - x0[4]*x1[7] - x0[5]*x1[8]);
+  double t5 = 8*(x0[3]*x0[3] + x0[4]*x0[4] + x0[5]*x0[5] + x1[3]*x1[3] + x1[4]*x1[4] + x1[5]*x1[5]);
+  double t6 = t5 + 5*((x0[0]-x1[0])*(x0[6]-x1[6]) + (x0[1]-x1[1])*(x0[7]-x1[7]) + (x0[2]-x1[2])*(x0[8]-x1[8]));
+  double t7 = t6 + 14*(x0[3]*x1[3] + x0[4]*x1[4] + x0[5]*x1[5]);
+  double t8 = (x0[0]-x1[0])*(x0[3]+x1[3]) + (x0[1]-x1[1])*(x0[4]+x1[4]) + (x0[2]-x1[2])*(x0[5]+x1[5]);
+  double t9 = (x0[0]-x1[0])*(x0[0]-x1[0]) + (x0[1]-x1[1])*(x0[1]-x1[1]) + (x0[2]-x1[2])*(x0[2]-x1[2]);
+
+  double T2 = T*T;
+  double T3 = T2*T;
+  double T4 = T3*T;
+  double T5 = T4*T;
+  double T6 = T5*T;
+
+  double cost = (T6 + rho_*(720*t9 + 720*T*t8 + 24*T2*t7 + 24*T3*t4 + 3*T4*t2)) / T5;
+}
+
 }

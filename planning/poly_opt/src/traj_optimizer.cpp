@@ -226,7 +226,7 @@ bool TrajOptimizer::solveRegionalOpt(std::vector<pair<int, int>> &seg_num_obs_si
           pos_checker_ptr_->getRegionalAttractPts(optimized_traj_, grid_path, collide_timestamp[i], seg_num_obs_size, attract_pts, t_s, t_e);
         }
       }
-      vis_ptr_->visualizeKnots(grid_paths, pos_checker_ptr_->getLocalTime());
+      // vis_ptr_->visualizeKnots(grid_paths, pos_checker_ptr_->getLocalTime());
       //re-organize seg_num_obs_size
       int seg_num = optimized_traj_.getPieceNum();
       int obs_size[seg_num] = {0};

@@ -11,9 +11,10 @@
   <arg name="origin_y" value=" -50.0" />
   <arg name="origin_z" value=" -1.0" />
   <arg name="resolution" value="0.1" />
-  <arg name="vel_limit" value="7.0" />
-  <arg name="acc_limit" value="5.0" />
+  <arg name="vel_limit" value="5.0" />
+  <arg name="acc_limit" value="4.0" />
   <arg name="jerk_limit" value="15.0" />
+  <arg name="rho_time" value="0.01" />
   <arg name="global_test" value="true" />
 
   <node pkg="state_machine" type="state_machine_node" name="state_machine_node" output="screen" > 
@@ -62,12 +63,12 @@
     <param name="pos_checker/hrz_safe_radius" value="0.4"/>
     <param name="pos_checker/vtc_safe_radius" value="0.2"/>
     <param name="pos_checker/copter_diag_len" value="0.4"/>
-    <param name="pos_checker/dt" value="0.02"/>
+    <param name="pos_checker/dt" value="0.03"/>
     <param name="pos_checker/inflate" value="true"/>
     <param name="pos_checker/global_test" value="$(arg global_test)"/>
   
     <!-- kinorrt* params --> 
-    <param name="krrt/rho" value="0.01" type="double"/> <!-- the quadratic matrix R of u'Ru -->
+    <param name="krrt/rho" value="$(arg rho_time)" type="double"/> <!-- the quadratic matrix R of u'Ru -->
     <param name="krrt/vel_limit" value="$(arg vel_limit)" type="double" />
     <param name="krrt/acc_limit" value="$(arg acc_limit)" type="double" />
     <param name="krrt/jerk_limit" value="$(arg jerk_limit)" type="double" />
@@ -79,10 +80,11 @@
     <param name="krrt/allow_close_goal" value="false" type="bool" />
     <param name="krrt/stop_after_first_traj_found" value="false" type="bool" />
     <param name="krrt/rewire" value="true" type="bool" />
-    <param name="krrt/use_regional_opt" value="true" type="bool" />
+    <param name="krrt/use_regional_opt" value="false" type="bool" />
     <param name="krrt/test_convergency" value="false" type="bool" />
+    <param name="krrt/use_deform" value="true" type="bool" />
 
-    <param name="kfmt/rho" value="0.01" type="double"/> <!-- the quadratic matrix R of u'Ru -->
+    <param name="kfmt/rho" value="$(arg rho_time)" type="double"/> <!-- the quadratic matrix R of u'Ru -->
     <param name="kfmt/vel_limit" value="$(arg vel_limit)" type="double" />
     <param name="kfmt/acc_limit" value="$(arg acc_limit)" type="double" />
     <param name="kfmt/jerk_limit" value="$(arg jerk_limit)" type="double" />
@@ -119,7 +121,7 @@
     <param name="search/jerk/time_resolution" value="0.8" type="double"/>
     <param name="search/jerk/allocate_num" value="100000" type="int"/>
     <param name="search/jerk/max_jerk" value="3.0" type="double"/>
-    <param name="search/jerk/rho" value="0.01" type="double"/>
+    <param name="search/jerk/rho" value="$(arg rho_time)" type="double"/>
 
     <param name="topo_prm/sample_inflate_x" value="1.0" type="double"/>
     <param name="topo_prm/sample_inflate_y" value="3.0" type="double"/>
@@ -150,11 +152,21 @@
     <param name="optimization/acc_limit" value="$(arg acc_limit)" type="double" />
     <param name="optimization/jerk_limit" value="$(arg jerk_limit)" type="double" />
     <param name="optimization/max_iter_times" value="30" type="int" />
+
+    <param name="trunk_opt/rho" value="$(arg rho_time)" type="double" />
+    <param name="trunk_opt/vel_limit" value="$(arg vel_limit)" type="double" />
+    <param name="trunk_opt/acc_limit" value="$(arg acc_limit)" type="double" />
+    <param name="trunk_opt/jerk_limit" value="$(arg jerk_limit)" type="double" />
+    <param name="trunk_opt/discretization" value="10" type="int" />
+    <param name="trunk_opt/rho_pos" value="51200.0" type="double" />
+    <param name="trunk_opt/rho_vel" value="512.0" type="double" />
+    <param name="trunk_opt/rho_acc" value="512.0" type="double" />
+    <param name="trunk_opt/dist_tolerance" value="0.4" type="double" />
     
     <!-- fsm params --> 
     <param name="fsm/use_optimization" value="true" type="bool"/>
     <param name="fsm/replan" value="false" type="bool"/>
-    <param name="fsm/replan_time" value="0.05" type="double"/>
+    <param name="fsm/replan_time" value="10" type="double"/>
     <param name="fsm/allow_track_err_replan" value="false" type="bool"/>
     <param name="fsm/e_stop_time_margin" value="0.5" type="double"/>
     <param name="fsm/replan_check_duration" value="3.0" type="double"/>

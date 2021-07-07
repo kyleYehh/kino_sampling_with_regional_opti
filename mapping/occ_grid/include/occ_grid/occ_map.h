@@ -295,6 +295,7 @@ inline bool OccMap::isInLocalMap(const Eigen::Vector3i &id)
   return true;
 };
 
+/* map range: [, ) */
 inline bool OccMap::isInMap(const Eigen::Vector3d &pos)
 {
   Eigen::Vector3i idx;

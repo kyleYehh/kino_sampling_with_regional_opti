@@ -9,6 +9,7 @@
 #include "kino_plan/topo_prm.h"
 #include "visualization_utils/visualization_utils.h"
 #include "poly_opt/traj_optimizer.h"
+#include "poly_opt/nonsmooth_trunk_opt.h"
 #include "quadrotor_msgs/PolynomialTrajectory.h"
 #include "quadrotor_msgs/PositionCommand.h"
 #include "r3_plan/r3_planner.h"
@@ -29,15 +30,15 @@ namespace tgk_planner
 class PlannerTester
 {
 public:
-  PlannerTester(){o_file_.open("/home/kai/ros_ws/learn_to_sample_ws/src/data/bench_forest.csv", ios::out | ios::app);};
-  ~PlannerTester(){o_file_.close();};
+  PlannerTester(){};
+  ~PlannerTester(){};
   void init(const ros::NodeHandle& nh);
   bool searchForTraj(Vector3d start_pos, Vector3d start_vel, Vector3d start_acc,  
                      Vector3d end_pos, Vector3d end_vel, Vector3d end_acc, 
                      double search_time);
   bool testConvergence(Vector3d start_pos, Vector3d start_vel, Vector3d start_acc,  
                      Vector3d end_pos, Vector3d end_vel, Vector3d end_acc, 
-                     double search_time);
+                     double search_time, bool use_deform, bool use_regional_opt);
   bool benchmarkOptimization(Vector3d start_pos, Vector3d start_vel, Vector3d start_acc,  
                      Vector3d end_pos, Vector3d end_vel, Vector3d end_acc, 
                      double search_time);
@@ -61,6 +62,7 @@ private:
   KinodynamicAstar::Ptr kastar_traj_finder_;
   KinodynamicAstarJ::Ptr kastar_jerk_finder_;
   fast_planner::BsplineOptimizer::Ptr bspline_optimizer_;
+  shared_ptr<BranchOpt> trunk_opt_ptr_;
   
   // ros 
   ros::NodeHandle nh_;
@@ -83,6 +85,7 @@ private:
   double max_vel_, max_acc_, ctrl_pt_dist_;
 
   std::ofstream o_file_;
+  string file_name_;
   double start_x_, start_y_, start_z_;
   bool use_bench_, use_r3_;
   bool test_rrt_w_, test_rrt_wo_, test_a_double_, test_a_triple_, test_fmt_w_, test_fmt_wo_;
@@ -90,6 +93,7 @@ private:
   int rrt_w_succ_num_, rrt_wo_suss_num_;
   int opt_succ_num_, opt_old_succ_num_, opt_liu_succ_num_, opt_bspline_succ_num_;
   int a_double_succ_num_, a_tripla_succ_num_, fmt_w_succ_num_, fmt_wo_succ_num_;
+  double avg_first_sln_time_, avg_first_sln_cost_;
 };
 
 void PlannerTester::init(const ros::NodeHandle &nh)
@@ -131,12 +135,17 @@ void PlannerTester::init(const ros::NodeHandle &nh)
 
   r3_planer_ptr_.reset(new R3Planner(nh, pos_checker_ptr_));
 
+  trunk_opt_ptr_.reset(new BranchOpt(nh));
+  trunk_opt_ptr_->setPosChecker(pos_checker_ptr_);
+  trunk_opt_ptr_->setVisualizer(vis_ptr_);
+
   krrt_planner_ptr_.reset(new KRRTPlanner(nh));
   krrt_planner_ptr_->init(nh);
   krrt_planner_ptr_->setPosChecker(pos_checker_ptr_);
   krrt_planner_ptr_->setVisualizer(vis_ptr_);
   krrt_planner_ptr_->setRegionalOptimizer(optimizer_ptr_);
   krrt_planner_ptr_->setSearcher(astar_searcher_);
+  krrt_planner_ptr_->setTrunkOptimizer(trunk_opt_ptr_);
 
   fmt_planner_ptr_.reset(new KFMTPlanner(nh));
   fmt_planner_ptr_->init(nh);
@@ -168,6 +177,7 @@ void PlannerTester::init(const ros::NodeHandle &nh)
   nh.param("test_plan/ctrl_pt_dist", ctrl_pt_dist_, 0.0);
   nh.param("test_plan/max_vel", max_vel_, 0.0);
   nh.param("test_plan/max_acc", max_acc_, 0.0);
+  nh.param<std::string>("test_plan/file_name", file_name_, "file");
 
   ROS_WARN_STREAM("[test_plan] param: use_optimization: " << use_optimization_);
   ROS_WARN_STREAM("[test_plan] param: replan_time: " << replan_time_);
@@ -188,6 +198,8 @@ void PlannerTester::init(const ros::NodeHandle &nh)
   a_tripla_succ_num_ = 0;
   fmt_w_succ_num_ = 0;
   fmt_wo_succ_num_ = 0;
+  avg_first_sln_time_ = 0;
+  avg_first_sln_cost_ = 0;
 }
 
 void PlannerTester::executionCallback(const ros::TimerEvent &event)
@@ -207,84 +219,74 @@ void PlannerTester::executionCallback(const ros::TimerEvent &event)
     {
       map_initialized = true;
 
-      /*********  bench convergence rrt w/ & rrt w/o ************/
-      // Vector3d start_pos(12.0, -12.0, 0.0), start_vel(0.0, 0.0, 0.0), start_acc(0.0, 0.0, 0.0);
-      // Vector3d end_pos(-12.0, 12.0, 0.0), end_vel(0.0, 0.0, 0.0), end_acc(0.0, 0.0, 0.0);
-      // int n(0);
-      // rrt_w_succ_num_ = 0;
-      // rrt_wo_suss_num_ = 0;
-      // opt_succ_num_ = 0;
-      // opt_old_succ_num_ = 0;
-      // a_double_succ_num_ = 0;
-      // a_tripla_succ_num_ = 0;
-      // fmt_w_succ_num_ = 0;
-      // fmt_wo_succ_num_ = 0;
-      // while (n < repeat_times_)
-      // {
-      //   ROS_ERROR_STREAM("start bench No." << n);
-      //   if (testConvergence(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, replan_time_))
-      //     n++;
-      // }  
-      /*********  bench convergence rrt w/ & rrt w/o ************/
-
-
-      /*********  bench back-end w/ & w/o & liu & bspline ************/
-      // Vector3d start_pos(5.0, -30.0, 0.0), start_vel(0.0, 0.0, 0.0), start_acc(0.0, 0.0, 0.0);
-      // Vector3d end_pos(-5.0, 30.0, 0.0), end_vel(0.0, 0.0, 0.0), end_acc(0.0, 0.0, 0.0);
-      // int n(0);
-      // rrt_w_succ_num_ = 0;
-      // rrt_wo_suss_num_ = 0;
-      // opt_succ_num_ = 0;
-      // opt_old_succ_num_ = 0;
-      // opt_liu_succ_num_ = 0;
-      // opt_bspline_succ_num_ = 0;
-      // while (n < repeat_times_)
-      // {
-      //   ROS_ERROR_STREAM("start benchmarking back-end No." << n);
-      //   if (benchmarkOptimization(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, replan_time_))
-      //     n++;
-      // }  
-      /*********  bench back-end w/ & w/o & liu & bspline ************/
-
-
-      /*********  bench front-end ************/
-      std::random_device rd;
-      std::mt19937_64 gen = std::mt19937_64(rd());            
-      std::uniform_real_distribution<double> y_rand = std::uniform_real_distribution<double>(-1.0, 1.0);
-      Vector3d start_pos(5.0, -30.0, 0.0), start_vel(0.0, 0.0, 0.0), start_acc(0.0, 0.0, 0.0);
-      Vector3d end_pos(-5.0, 30.0, 0.0), end_vel(0.0, 0.0, 0.0), end_acc(0.0, 0.0, 0.0);
-      int n(0);
-      rrt_w_succ_num_ = 0;
-      rrt_wo_suss_num_ = 0;
-      opt_succ_num_ = 0;
-      opt_old_succ_num_ = 0;
-      a_double_succ_num_ = 0;
-      a_tripla_succ_num_ = 0;
-      fmt_w_succ_num_ = 0;
-      fmt_wo_succ_num_ = 0;
-      while (n < repeat_times_)
+      /*********  bench convergence  ************/
+      Vector3d start_pos(12.0, -12.0, 0.0), start_vel(0.0, 0.0, 0.0), start_acc(0.0, 0.0, 0.0);
+      Vector3d end_pos(-12.0, 12.0, 0.0), end_vel(0.0, 0.0, 0.0), end_acc(0.0, 0.0, 0.0);
+      int n(1);
+      bool use_deform(false), use_regional_opt(false);
+      o_file_.open(file_name_, ios::out | ios::app);
+      avg_first_sln_time_ = 0;
+      avg_first_sln_cost_ = 0;
+      while (n <= repeat_times_)
       {
         ROS_ERROR_STREAM("start bench No." << n);
-        if (searchForTraj(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, replan_time_))
+        if (testConvergence(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, replan_time_, use_deform, use_regional_opt))
           n++;
-        double y_bias = y_rand(gen);
-        start_pos.x() = -5 + y_bias;
-        end_pos.x() = 5 + y_bias;
       }  
-      /*********  bench front-end ************/
+      avg_first_sln_time_ /= repeat_times_; 
+      avg_first_sln_cost_ /= repeat_times_; 
+      o_file_ << avg_first_sln_time_ << "," << avg_first_sln_cost_ << ",";
+      o_file_ << endl;
 
+      use_deform = true;
+      use_regional_opt = false;
+      n = 1;
+      avg_first_sln_time_ = 0;
+      avg_first_sln_cost_ = 0;
+      while (n <= repeat_times_)
+      {
+        ROS_ERROR_STREAM("start bench No." << n);
+        if (testConvergence(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, replan_time_, use_deform, use_regional_opt))
+          n++;
+      }  
+      avg_first_sln_time_ /= repeat_times_; 
+      avg_first_sln_cost_ /= repeat_times_; 
+      o_file_ << avg_first_sln_time_ << "," << avg_first_sln_cost_ << ",";
       o_file_ << endl;
-      o_file_ << rrt_w_succ_num_ << "," 
-            << opt_succ_num_ << "," 
-            << opt_old_succ_num_ << "," 
-            << opt_liu_succ_num_ << "," 
-            << opt_bspline_succ_num_ << "," 
-            << rrt_wo_suss_num_ << "," 
-            << a_double_succ_num_ << ","
-            << a_tripla_succ_num_ << "," 
-            << fmt_w_succ_num_ << "," 
-            << fmt_wo_succ_num_ << "," << ","; 
+
+      use_deform = true;
+      use_regional_opt = true;
+      n = 1;
+      avg_first_sln_time_ = 0;
+      avg_first_sln_cost_ = 0;
+      while (n <= repeat_times_)
+      {
+        ROS_ERROR_STREAM("start bench No." << n);
+        if (testConvergence(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, replan_time_, use_deform, use_regional_opt))
+          n++;
+      }  
+      avg_first_sln_time_ /= repeat_times_; 
+      avg_first_sln_cost_ /= repeat_times_; 
+      o_file_ << avg_first_sln_time_ << "," << avg_first_sln_cost_ << ",";
       o_file_ << endl;
+
+      use_deform = false;
+      use_regional_opt = true;
+      n = 1;
+      avg_first_sln_time_ = 0;
+      avg_first_sln_cost_ = 0;
+      while (n <= repeat_times_)
+      {
+        ROS_ERROR_STREAM("start bench No." << n);
+        if (testConvergence(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, replan_time_, use_deform, use_regional_opt))
+          n++;
+      }  
+      avg_first_sln_time_ /= repeat_times_; 
+      avg_first_sln_cost_ /= repeat_times_; 
+      o_file_ << avg_first_sln_time_ << "," << avg_first_sln_cost_ << ",";
+      /*********  bench convergence  ************/
+      o_file_.close();
+
       runned = true;
 
     }
@@ -367,7 +369,7 @@ bool PlannerTester::benchmarkOptimization(Vector3d start_pos, Vector3d start_vel
   bool rrt_w_res(false);
   krrt_planner_ptr_->reset();
   ros::Time t_krrt_with_s = ros::Time::now();
-  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 1);
+  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 0, 1);
   double time_krrt_w = (ros::Time::now() - t_krrt_with_s).toSec();
   if (rrt_w_res == KRRTPlanner::SUCCESS)
   {
@@ -584,7 +586,7 @@ bool PlannerTester::benchmarkOptimization(Vector3d start_pos, Vector3d start_vel
 
 bool PlannerTester::testConvergence(Vector3d start_pos, Vector3d start_vel, Vector3d start_acc,
                         Vector3d end_pos, Vector3d end_vel, Vector3d end_acc,
-                        double search_time)
+                        double search_time, bool use_deform, bool use_regional_opt)
 {
   bool tried_once(false);
   int result(false);
@@ -596,63 +598,59 @@ bool PlannerTester::testConvergence(Vector3d start_pos, Vector3d start_vel, Vect
   /* r3planner   */
   if (use_r3_)
   {
-  double len_cost(0.0);
-  vector<Vector3d> route;
-  vector<vector<Vector3d>> routes;
-  ros::Time t1 = ros::Time::now();
-  double radius(16); //radius square
-  if (r3_planer_ptr_->planOnce(start_pos, end_pos, route, len_cost, radius))
-  {
-    tried_once = true;
-    double r3_use_time = (ros::Time::now() - t1).toSec() * 1e3;
-    ROS_ERROR_STREAM("r3 plan solved in: " << r3_use_time << " ms, route len: " << len_cost);
-    // vector<vector<Vector3d>> select_paths;
-    // size_t v_n = r3_planer_ptr_->getGraph(select_paths);
-    // vis_ptr_->visualizePRM(select_paths, Color::Teal(), env_ptr_->getLocalTime());
-    // getchar();
-    routes.push_back(route);
-    // vis_ptr_->visualizePRM(routes, Color::Red(), env_ptr_->getLocalTime());
+    double len_cost(0.0);
+    vector<Vector3d> route;
+    vector<vector<Vector3d>> routes;
+    ros::Time t1 = ros::Time::now();
+    double radius(16); //radius square
+    if (r3_planer_ptr_->planOnce(start_pos, end_pos, route, len_cost, radius))
+    {
+      tried_once = true;
+      double r3_use_time = (ros::Time::now() - t1).toSec() * 1e3;
+      ROS_ERROR_STREAM("r3 plan solved in: " << r3_use_time << " ms, route len: " << len_cost);
+      // vector<vector<Vector3d>> select_paths;
+      // size_t v_n = r3_planer_ptr_->getGraph(select_paths);
+      // vis_ptr_->visualizePRM(select_paths, Color::Teal(), env_ptr_->getLocalTime());
+      // getchar();
+      routes.push_back(route);
+      // vis_ptr_->visualizePRM(routes, Color::Red(), env_ptr_->getLocalTime());
 
-    // vector<double> radii;
-    // for (const auto & p: route)
-    // {
-    //   Vector3d obs;
-    //   double radius = sqrt(pos_checker_ptr_->nearestObs(p, obs));
-    //   radii.push_back(radius);
-    // }
-    // vis_ptr_->visualizeBalls(route, radii, env_ptr_->getLocalTime());
-    krrt_planner_ptr_->sampler_.topoSetup(routes);
-    fmt_planner_ptr_->sampler_.topoSetup(routes);
-    // o_file_ << r3_use_time << "," << ","; // r3 use time (ms)
-  }
-  else
-  {
-    ROS_WARN("r3 plan fail");
-    return false;
-    // o_file_ << "," << ","; // r3 use time (ms)
-  }
+      // vector<double> radii;
+      // for (const auto & p: route)
+      // {
+      //   Vector3d obs;
+      //   double radius = sqrt(pos_checker_ptr_->nearestObs(p, obs));
+      //   radii.push_back(radius);
+      // }
+      // vis_ptr_->visualizeBalls(route, radii, env_ptr_->getLocalTime());
+      krrt_planner_ptr_->sampler_.topoSetup(routes);
+      fmt_planner_ptr_->sampler_.topoSetup(routes);
+      // o_file_ << r3_use_time << "," << ","; // r3 use time (ms)
+    }
+    else
+    {
+      ROS_WARN("r3 plan fail");
+      return false;
+      // o_file_ << "," << ","; // r3 use time (ms)
+    }
   }
   else
   {
     tried_once = true;
   }
   
-
-  bool rrt_w_res(false);
-  if (test_rrt_w_)
-  // while (rrt_w_res != KRRTPlanner::SUCCESS)
-  {
+  bool res(false);
   krrt_planner_ptr_->reset();
-  ros::Time t_krrt_with_s = ros::Time::now();
-  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 1);
-  double time_krrt_w = (ros::Time::now() - t_krrt_with_s).toSec();
-  if (rrt_w_res == KRRTPlanner::SUCCESS)
+  res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, use_deform, use_regional_opt);
+  if (res == KRRTPlanner::SUCCESS)
   {
     rrt_w_succ_num_++;
     vector<Trajectory> traj_list;
     vector<double> solution_cost_list;
     vector<double> solution_time_list;
     krrt_planner_ptr_->getConvergenceInfo(traj_list, solution_cost_list, solution_time_list);
+    avg_first_sln_time_ += solution_time_list[0] * 1e3;
+    avg_first_sln_cost_ += solution_cost_list[0];
     vector<vector<StatePVA>> trajs_states;
     for (size_t i = 0; i < traj_list.size(); ++i)
     {
@@ -662,57 +660,21 @@ bool PlannerTester::testConvergence(Vector3d start_pos, Vector3d start_vel, Vect
       double curr_traj_len(0.0), curr_traj_duration(0.0), curr_traj_acc_itg(0.0), curr_traj_jerk_itg(0.0);
       int curr_traj_seg_nums(0);
       krrt_planner_ptr_->evaluateTraj(traj_list[i], curr_traj_duration, curr_traj_len, curr_traj_seg_nums, curr_traj_acc_itg, curr_traj_jerk_itg);
-      o_file_ << solution_time_list[i] * 1e3 << "," 
-            << curr_traj_seg_nums << "," 
-            << curr_traj_acc_itg << "," 
-            << curr_traj_jerk_itg << "," 
+      o_file_ << i+1 << "," 
+              << solution_time_list[i] * 1e3 << "," 
+            // << curr_traj_seg_nums << "," 
+            // << curr_traj_acc_itg << "," 
+            // << curr_traj_jerk_itg << "," 
             << solution_cost_list[i] << ","
-            << curr_traj_duration << ","
-            << curr_traj_len << "," << i << endl; 
+            // << curr_traj_duration << ","
+            // << curr_traj_len << "," 
+            << endl; 
     }
     vis_ptr_->visualizeTrajList(trajs_states, pos_checker_ptr_->getLocalTime());
     // o_file_ << endl;
     return true;
   }
-  }
-
-  bool rrt_wo_res(false);
-  if (test_rrt_wo_)
-  // while (rrt_w_res != KRRTPlanner::SUCCESS)
-  {
-  krrt_planner_ptr_->reset();
-  ros::Time t_krrt_with_s = ros::Time::now();
-  rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 0);
-  double time_krrt_w = (ros::Time::now() - t_krrt_with_s).toSec();
-  if (rrt_wo_res == KRRTPlanner::SUCCESS)
-  {
-    rrt_w_succ_num_++;
-    vector<Trajectory> traj_list;
-    vector<double> solution_cost_list;
-    vector<double> solution_time_list;
-    krrt_planner_ptr_->getConvergenceInfo(traj_list, solution_cost_list, solution_time_list);
-    vector<vector<StatePVA>> trajs_states;
-    for (size_t i = 0; i < traj_list.size(); ++i)
-    {
-      vector<StatePVA> single_traj_states;
-      traj_list[i].sampleWholeTrajectory(&single_traj_states);
-      trajs_states.push_back(single_traj_states);
-      double curr_traj_len(0.0), curr_traj_duration(0.0), curr_traj_acc_itg(0.0), curr_traj_jerk_itg(0.0);
-      int curr_traj_seg_nums(0);
-      krrt_planner_ptr_->evaluateTraj(traj_list[i], curr_traj_duration, curr_traj_len, curr_traj_seg_nums, curr_traj_acc_itg, curr_traj_jerk_itg);
-      o_file_ << solution_time_list[i] * 1e3 << "," 
-            << curr_traj_seg_nums << "," 
-            << curr_traj_acc_itg << "," 
-            << curr_traj_jerk_itg << "," 
-            << solution_cost_list[i] << ","
-            << curr_traj_duration << ","
-            << curr_traj_len << "," << i << endl; 
-    }
-    vis_ptr_->visualizeTrajList(trajs_states, pos_checker_ptr_->getLocalTime());
-    // o_file_ << endl;
-    return true;
-  }
-  }
+  return false;
 
 }
 
@@ -780,7 +742,7 @@ bool PlannerTester::searchForTraj(Vector3d start_pos, Vector3d start_vel, Vector
   {
   krrt_planner_ptr_->reset();
   ros::Time t_krrt_with_s = ros::Time::now();
-  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 1);
+  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 0, 1);
   double time_krrt_w = (ros::Time::now() - t_krrt_with_s).toSec();
   if (rrt_w_res == KRRTPlanner::SUCCESS)
   {
@@ -974,7 +936,7 @@ bool PlannerTester::searchForTraj(Vector3d start_pos, Vector3d start_vel, Vector
   // w/o regional opt
   krrt_planner_ptr_->reset();
   ros::Time t_krrt_without_s = ros::Time::now();
-  rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 0);
+  rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 0, 0);
   double time_krrt_without = (ros::Time::now() - t_krrt_without_s).toSec();
   if (rrt_wo_res == KRRTPlanner::SUCCESS)
   {

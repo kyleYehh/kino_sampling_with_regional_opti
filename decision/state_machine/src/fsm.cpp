@@ -46,12 +46,17 @@ namespace tgk_planner
 
     r3_planer_ptr_.reset(new R3Planner(nh, pos_checker_ptr_));
 
+    trunk_opt_ptr_.reset(new BranchOpt(nh));
+    trunk_opt_ptr_->setPosChecker(pos_checker_ptr_);
+    trunk_opt_ptr_->setVisualizer(vis_ptr_);
+
     krrt_planner_ptr_.reset(new KRRTPlanner(nh));
     krrt_planner_ptr_->init(nh);
     krrt_planner_ptr_->setPosChecker(pos_checker_ptr_);
     krrt_planner_ptr_->setVisualizer(vis_ptr_);
     krrt_planner_ptr_->setRegionalOptimizer(optimizer_ptr_);
     krrt_planner_ptr_->setSearcher(astar_searcher_);
+    krrt_planner_ptr_->setTrunkOptimizer(trunk_opt_ptr_);
 
     fmt_planner_ptr_.reset(new KFMTPlanner(nh));
     fmt_planner_ptr_->init(nh);
@@ -154,7 +159,7 @@ namespace tgk_planner
       }
       if (!started_)
       {
-        ROS_INFO("wait for goal in %lf but actual in %lf", event.current_expected.toSec(), event.current_real.toSec());
+        ROS_INFO("[timer] wait for goal delayed by %lf ms", (event.current_real - event.current_expected).toSec() * 1000);
       }
       fsm_num = 0;
     }
@@ -224,42 +229,23 @@ namespace tgk_planner
             << "    -   jerk integral: " << traj_jerk_itg << endl
             << "    -   traj duration: " << traj_duration << endl 
             << "    -   path length: " << traj_len << " m");
-        vector<string> ss;
-        vector<Vector3d> ps;
-        ss.push_back(std::to_string(first_traj_use_time * 1e3));
-        ss.push_back(std::to_string(traj_jerk_itg));
-
 
         krrt_planner_ptr_->getTraj(traj_);
         vector<StatePVA> vis_x;
+        vector<Vector3d> knots;
+        for (int i=0; i<traj_.getPieceNum(); ++i) {
+          Vector3d p = traj_[i].getPos(traj_[i].getDuration());
+          knots.push_back(p);
+          cout << "knots in traj: " << p.transpose() << endl;
+        }
+        vis_x.clear();
+        krrt_first_traj.sampleWholeTrajectory(&vis_x);
+        vis_ptr_->visualizeStates(vis_x, FirstTraj, pos_checker_ptr_->getLocalTime());
+        vis_ptr_->visualizeKnots(knots, pos_checker_ptr_->getLocalTime());
         vis_x.clear();
         traj_.sampleWholeTrajectory(&vis_x);
         vis_ptr_->visualizeStates(vis_x, FinalTraj, pos_checker_ptr_->getLocalTime());
 
-
-        bool rrt_wo_res(false);
-        krrt_planner_ptr_->reset();
-        rrt_wo_res = krrt_planner_ptr_->plan(start_pos_, start_vel_, start_acc_, end_pos_, end_vel_, end_acc_, replan_time_, Vector3d(0,0,0), Vector3d(0,0,0), 0, 0);
-        std::string str_wo;
-        if (rrt_wo_res == KRRTPlanner::SUCCESS)
-        {
-          Trajectory krrt_traj_wo;
-          krrt_planner_ptr_->getFirstTraj(krrt_traj_wo);
-          krrt_planner_ptr_->evaluateTraj(krrt_traj_wo, traj_duration, traj_len, first_traj_seg_nums, traj_acc_itg, traj_jerk_itg);
-          double first_traj_use_time = krrt_planner_ptr_->getFirstTrajTimeUsage();
-          ss.push_back(std::to_string(first_traj_use_time * 1e3));
-          ss.push_back(std::to_string(traj_jerk_itg));
-          vis_x.clear();
-          krrt_traj_wo.sampleWholeTrajectory(&vis_x);
-          vis_ptr_->visualizeStates(vis_x, FMTTrajWithout, pos_checker_ptr_->getLocalTime());
-        }
-        else
-        {
-          ss.push_back("fail");
-          ss.push_back("fail");
-          vis_x.clear();
-          vis_ptr_->visualizeStates(vis_x, FMTTrajWithout, pos_checker_ptr_->getLocalTime());
-        }
 
         if (use_optimization_)
         {
@@ -273,17 +259,9 @@ namespace tgk_planner
             traj_.sampleWholeTrajectory(&vis_x);
 
             krrt_planner_ptr_->evaluateTraj(traj_, traj_duration, traj_len, first_traj_seg_nums, traj_acc_itg, traj_jerk_itg);
-            ss.push_back(std::to_string((optimize_end_time - optimize_start_time).toSec() * 1e3));
-            ss.push_back(std::to_string(traj_jerk_itg));
-          }
-          else
-          {
-            ss.push_back("fail");
-            ss.push_back("fail");
           }
           vis_ptr_->visualizeStates(vis_x, OptimizedTraj, pos_checker_ptr_->getLocalTime());
         }
-        vis_ptr_->visualizeText(ss, ps, pos_checker_ptr_->getLocalTime());
         
         replan_state = 1;
         sendTrajToServer(traj_);
@@ -412,46 +390,12 @@ namespace tgk_planner
             << "    -   jerk integral: " << traj_jerk_itg << endl
             << "    -   traj duration: " << traj_duration << endl 
             << "    -   path length: " << traj_len << " m");
-        vector<string> ss;
-        vector<Vector3d> ps;
-        ss.push_back(std::to_string(first_traj_use_time * 1e3));
-        ss.push_back(std::to_string(traj_jerk_itg));
 
         krrt_planner_ptr_->getTraj(traj_);
         vector<StatePVA> vis_x;
         vis_x.clear();
         traj_.sampleWholeTrajectory(&vis_x);
         vis_ptr_->visualizeStates(vis_x, FinalTraj, pos_checker_ptr_->getLocalTime());
-
-
-
-
-        bool rrt_wo_res(false);
-        krrt_planner_ptr_->reset();
-        rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos_, end_vel_, end_acc_, front_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 0);
-        std::string str_wo;
-        if (rrt_wo_res == KRRTPlanner::SUCCESS)
-        {
-          Trajectory krrt_traj_wo;
-          krrt_planner_ptr_->getFirstTraj(krrt_traj_wo);
-          krrt_planner_ptr_->evaluateTraj(krrt_traj_wo, traj_duration, traj_len, first_traj_seg_nums, traj_acc_itg, traj_jerk_itg);
-          double first_traj_use_time = krrt_planner_ptr_->getFirstTrajTimeUsage();
-          ss.push_back(std::to_string(first_traj_use_time * 1e3));
-          ss.push_back(std::to_string(traj_jerk_itg));
-          vis_x.clear();
-          krrt_traj_wo.sampleWholeTrajectory(&vis_x);
-          vis_ptr_->visualizeStates(vis_x, FMTTrajWithout, pos_checker_ptr_->getLocalTime());
-        }
-        else
-        {
-          ss.push_back("fail");
-          ss.push_back("fail");
-          vis_x.clear();
-          vis_ptr_->visualizeStates(vis_x, FMTTrajWithout, pos_checker_ptr_->getLocalTime());
-        }
-        
-
-
 
         ROS_WARN("Replan front-end success");
         if (use_optimization_)
@@ -467,17 +411,9 @@ namespace tgk_planner
             traj_.sampleWholeTrajectory(&vis_x);
             
             krrt_planner_ptr_->evaluateTraj(traj_, traj_duration, traj_len, first_traj_seg_nums, traj_acc_itg, traj_jerk_itg);
-            ss.push_back(std::to_string((optimize_end_time - optimize_start_time).toSec() * 1e3));
-            ss.push_back(std::to_string(traj_jerk_itg));
-          }
-          else
-          {
-            ss.push_back("fail");
-            ss.push_back("fail");
           }
           vis_ptr_->visualizeStates(vis_x, OptimizedTraj, pos_checker_ptr_->getLocalTime());
         }
-        vis_ptr_->visualizeText(ss, ps, pos_checker_ptr_->getLocalTime());
 
         double replan_duration = (ros::Time::now() - t_replan_start).toSec();
         if (replan_duration < dt)
@@ -573,7 +509,7 @@ namespace tgk_planner
 
 
     krrt_planner_ptr_->reset();
-    result = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, normal, dire, need_consistancy, 1);
+    result = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 1, 1);
 
     if (result == KRRTPlanner::SUCCESS)
     {

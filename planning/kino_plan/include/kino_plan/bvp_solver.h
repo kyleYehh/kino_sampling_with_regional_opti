@@ -84,6 +84,7 @@ public:
   };
 
   void calCoeffFromTau(double tau, CoefficientMat &coeff);
+  double calCostAccKnown(const VectorXd &x0, const VectorXd &x1, double T);
 
 
 private:
