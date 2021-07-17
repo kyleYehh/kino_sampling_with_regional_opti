@@ -52,7 +52,7 @@ public:
   }
   int plan(Vector3d start_pos, Vector3d start_vel, Vector3d start_acc,
            Vector3d end_pos, Vector3d end_vel, Vector3d end_acc,
-           double search_time, const Vector3d &normal, const Vector3d &dire, bool need_consistancy, bool use_regional_opt);
+           double search_time, bool use_regional_opt);
   void getTraj(Trajectory &traj)
   {
     traj = traj_;
@@ -102,7 +102,6 @@ private:
   void sampleWholeTree(const RRTNodePtr &root, vector<StatePVA> *vis_x, vector<Vector3d>& knots);
 
   RRTNodePtrVector start_tree_; //pre allocated in Constructor
-  std::vector<StatePVA> orphans_;
   Trajectory traj_;
   Trajectory first_traj_; //initialized when first path found
   RRTNodePtr start_node_, goal_node_, close_goal_node_;
@@ -124,9 +123,9 @@ private:
   double rho_;
   double v_mag_sample_;
   double vel_limit_, acc_limit_, jerk_limit_;
-  bool allow_orphan_, allow_close_goal_, stop_after_first_traj_found_, rewire_, use_regional_opt_;
+  bool allow_close_goal_, stop_after_first_traj_found_, rewire_, use_regional_opt_;
   double search_time_;
-  int tree_node_nums_, orphan_nums_;
+  int tree_node_nums_;
 
   // environment
   PosChecker::Ptr pos_checker_ptr_;

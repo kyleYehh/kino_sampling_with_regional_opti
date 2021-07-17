@@ -239,7 +239,7 @@ namespace tgk_planner
 
         bool rrt_wo_res(false);
         krrt_planner_ptr_->reset();
-        rrt_wo_res = krrt_planner_ptr_->plan(start_pos_, start_vel_, start_acc_, end_pos_, end_vel_, end_acc_, replan_time_, Vector3d(0,0,0), Vector3d(0,0,0), 0, 0);
+        rrt_wo_res = krrt_planner_ptr_->plan(start_pos_, start_vel_, start_acc_, end_pos_, end_vel_, end_acc_, replan_time_, 0);
         std::string str_wo;
         if (rrt_wo_res == KRRTPlanner::SUCCESS)
         {
@@ -428,7 +428,7 @@ namespace tgk_planner
 
         bool rrt_wo_res(false);
         krrt_planner_ptr_->reset();
-        rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos_, end_vel_, end_acc_, front_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 0);
+        rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos_, end_vel_, end_acc_, front_time, 0);
         std::string str_wo;
         if (rrt_wo_res == KRRTPlanner::SUCCESS)
         {
@@ -573,7 +573,7 @@ namespace tgk_planner
 
 
     krrt_planner_ptr_->reset();
-    result = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, normal, dire, need_consistancy, 1);
+    result = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 1);
 
     if (result == KRRTPlanner::SUCCESS)
     {

@@ -24,9 +24,11 @@ struct RRTNode {
   StatePVA x;
   double cost_from_start;
   double tau_from_start;
+  double cost_from_parent;
+  double tau_from_parent;
   Piece poly_seg;
   list<RRTNode*> children;
-  RRTNode(): parent(NULL), cost_from_start(DBL_MAX), tau_from_start(DBL_MAX){};
+  RRTNode(): parent(NULL), cost_from_start(DBL_MAX), tau_from_start(DBL_MAX), cost_from_parent(0.0), tau_from_parent(0.0) {};
 };
 typedef RRTNode* RRTNodePtr;
 typedef vector<RRTNodePtr, Eigen::aligned_allocator<RRTNodePtr>> RRTNodePtrVector;

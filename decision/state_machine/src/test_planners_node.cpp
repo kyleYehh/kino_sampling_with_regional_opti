@@ -367,7 +367,7 @@ bool PlannerTester::benchmarkOptimization(Vector3d start_pos, Vector3d start_vel
   bool rrt_w_res(false);
   krrt_planner_ptr_->reset();
   ros::Time t_krrt_with_s = ros::Time::now();
-  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 1);
+  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 1);
   double time_krrt_w = (ros::Time::now() - t_krrt_with_s).toSec();
   if (rrt_w_res == KRRTPlanner::SUCCESS)
   {
@@ -644,7 +644,7 @@ bool PlannerTester::testConvergence(Vector3d start_pos, Vector3d start_vel, Vect
   {
   krrt_planner_ptr_->reset();
   ros::Time t_krrt_with_s = ros::Time::now();
-  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 1);
+  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 1);
   double time_krrt_w = (ros::Time::now() - t_krrt_with_s).toSec();
   if (rrt_w_res == KRRTPlanner::SUCCESS)
   {
@@ -682,7 +682,7 @@ bool PlannerTester::testConvergence(Vector3d start_pos, Vector3d start_vel, Vect
   {
   krrt_planner_ptr_->reset();
   ros::Time t_krrt_with_s = ros::Time::now();
-  rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 0);
+  rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 0);
   double time_krrt_w = (ros::Time::now() - t_krrt_with_s).toSec();
   if (rrt_wo_res == KRRTPlanner::SUCCESS)
   {
@@ -780,7 +780,7 @@ bool PlannerTester::searchForTraj(Vector3d start_pos, Vector3d start_vel, Vector
   {
   krrt_planner_ptr_->reset();
   ros::Time t_krrt_with_s = ros::Time::now();
-  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 1);
+  rrt_w_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 1);
   double time_krrt_w = (ros::Time::now() - t_krrt_with_s).toSec();
   if (rrt_w_res == KRRTPlanner::SUCCESS)
   {
@@ -974,7 +974,7 @@ bool PlannerTester::searchForTraj(Vector3d start_pos, Vector3d start_vel, Vector
   // w/o regional opt
   krrt_planner_ptr_->reset();
   ros::Time t_krrt_without_s = ros::Time::now();
-  rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, Vector3d(0,0,0), Vector3d(0,0,0), 0, 0);
+  rrt_wo_res = krrt_planner_ptr_->plan(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, search_time, 0);
   double time_krrt_without = (ros::Time::now() - t_krrt_without_s).toSec();
   if (rrt_wo_res == KRRTPlanner::SUCCESS)
   {
