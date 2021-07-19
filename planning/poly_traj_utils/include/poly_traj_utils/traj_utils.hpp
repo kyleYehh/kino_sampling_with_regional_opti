@@ -489,27 +489,7 @@ public:
     //Scale the Piece(t) to Piece(k*t)
     inline void scaleTime(double k)
     {
-        BoundaryCond boundCond = getBoundCond(); // should get boundCond before duration changes
-
         duration /= k;
-
-        double t1 = duration;
-        double t2 = t1 * t1;
-
-        // Inverse mapping is computed without explicit matrix inverse
-        // It maps boundary condition to normalized coefficient matrix
-        nCoeffMat.col(0) = 0.5 * (boundCond.col(5) - boundCond.col(2)) * t2 -
-                           3.0 * (boundCond.col(1) + boundCond.col(4)) * t1 +
-                           6.0 * (boundCond.col(3) - boundCond.col(0));
-        nCoeffMat.col(1) = (-boundCond.col(5) + 1.5 * boundCond.col(2)) * t2 +
-                           (8.0 * boundCond.col(1) + 7.0 * boundCond.col(4)) * t1 +
-                           15.0 * (-boundCond.col(3) + boundCond.col(0));
-        nCoeffMat.col(2) = (0.5 * boundCond.col(5) - 1.5 * boundCond.col(2)) * t2 -
-                           (6.0 * boundCond.col(1) + 4.0 * boundCond.col(4)) * t1 +
-                           10.0 * (boundCond.col(3) - boundCond.col(0));
-        nCoeffMat.col(3) = 0.5 * boundCond.col(2) * t2;
-        nCoeffMat.col(4) = boundCond.col(1) * t1;
-        nCoeffMat.col(5) = boundCond.col(0);
         return;
     }
 
@@ -920,6 +900,17 @@ public:
         {
             pieces[i].sampleOneSeg(vis_x);
         }
+    }
+    
+    inline double calCost(const double &rho, double* seg_cost)
+    {
+        double cost(0.0);
+        for (int i = 0; i < getPieceNum(); i++)
+        {
+            seg_cost[i] = pieces[i].calCost(rho);
+            cost += seg_cost[i];
+        }
+        return cost;
     }
 
     inline void getWpts(std::vector< StatePVA >* wpts)

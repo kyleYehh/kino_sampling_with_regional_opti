@@ -930,12 +930,12 @@ bool TrajOptimizer::reTiming(Trajectory& traj)
 {
   if (!traj.checkMaxAccRate(acc_limit_))
   {
-    const int ite_time(4);
+    const int ite_time(8);
     int n(0);
     while (n < ite_time)
     {
-      // ROS_WARN_STREAM("max acc: " << optimized_traj_.getMaxAccRate());
-      double k(0.90);
+      // ROS_WARN_STREAM("max acc: " << traj.getMaxAccRate());
+      double k(0.80);
       // double k = min(0.98, acc_limit_ / optimized_traj_.getMaxAccRate());
       traj.scaleTime(k);
       if (traj.checkMaxAccRate(acc_limit_))
@@ -944,7 +944,7 @@ bool TrajOptimizer::reTiming(Trajectory& traj)
     }
     if (n >= ite_time)
     {
-      // ROS_ERROR_STREAM("max acc: " << optimized_traj_.getMaxAccRate());
+      // ROS_ERROR_STREAM("max acc: " << traj.getMaxAccRate());
       return false;
     }
   }
@@ -972,12 +972,12 @@ bool TrajOptimizer::reTiming(Trajectory& traj)
 
   if (!traj.checkMaxJerkRate(jerk_limit_))
   {
-    const int ite_time(4);
+    const int ite_time(8);
     int n(0);
     while (n < ite_time)
     {
       // ROS_WARN_STREAM("max jerk: " << optimized_traj_.getMaxJerkRate());
-      double k(0.90);
+      double k(0.8);
       // double k = min(0.98, acc_limit_ / optimized_traj_.getMaxJerkRate());
       traj.scaleTime(k);
       if (traj.checkMaxJerkRate(jerk_limit_))
