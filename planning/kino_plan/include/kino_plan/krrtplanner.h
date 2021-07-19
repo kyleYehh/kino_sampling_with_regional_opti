@@ -95,6 +95,14 @@ private:
   double dist(const StatePVA &x0, const StatePVA &x1);
   void fillTraj(const RRTNodePtr &goal_leaf, Trajectory& traj);
   void chooseBypass(RRTNodePtr &goal_leaf, const RRTNodePtr &tree_start_node);
+  RRTNodePtr addTreeNode(RRTNodePtr& parent, const StatePVA& state, const Piece& piece, 
+                        const double& cost_from_start, const double& tau_from_start, 
+                        const double& cost_from_parent, const double& tau_from_parent);
+  RRTNodePtr addTreeNode(RRTNodePtr& parent, const StatePVA& state, const Piece& piece, 
+                        const double& cost_from_parent, const double& tau_from_parent);
+  void changeNodeParent(RRTNodePtr& node, RRTNodePtr& parent, const Piece& piece, 
+                        const double& cost_from_parent, const double& tau_from_parent);
+  bool regionalOpt(const Piece& oringin_seg, const pair<Vector3d, Vector3d>& collide_pts_one_seg, const pair<double, double>& t_s_e);
 
   // vis
   bool debug_vis_;

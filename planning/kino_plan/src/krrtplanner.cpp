@@ -1,7 +1,7 @@
 #include "kino_plan/krrtplanner.h"
 #include <queue>
 
-ros::Time t_start_;
+ros::Time t_start_, t_end_;
 
 namespace tgk_planner
 {
@@ -145,7 +145,7 @@ int KRRTPlanner::plan(Vector3d start_pos, Vector3d start_vel, Vector3d start_acc
   /* init sampling space */
   vector<pair<Vector3d, Vector3d>> traversal_lines;
 	ROS_INFO_STREAM("Kino RRT* starts planning");
-  if (bvp_.solve(start_node_->x, goal_node_->x))
+  if (bvp_.solve(start_node_->x, goal_node_->x, ACC_KNOWN))
   {
     CoefficientMat coeff;
     bvp_.getCoeff(coeff);
@@ -309,7 +309,7 @@ int KRRTPlanner::rrtStar(const StatePVA& x_init, const StatePVA& x_final, int n,
         kd_res_next( p_bcwd_nbr_set );
         continue;
       }
-      if (bvp_.solve(curr_node->x, x_rand))
+      if (bvp_.solve(curr_node->x, x_rand, ACC_UNKNOWN))
       {
         CoefficientMat coeff;
         bvp_.getCoeff(coeff);
@@ -336,7 +336,7 @@ int KRRTPlanner::rrtStar(const StatePVA& x_init, const StatePVA& x_final, int n,
             // ROS_INFO("one parent found");
           } 
         }
-        else if (need_region_opt && use_regional_opt_)
+        else if (need_region_opt && use_regional_opt_ && seg_from_parent.getAcc(bvp_.getTauStar()).norm() < acc_limit_)
         {
           double dis = (curr_node->x - x_rand).head(3).norm();
           // only 2m < distance with potential parent < 5m and collision duration < 0.5 are stored to be optimized
@@ -360,194 +360,79 @@ int KRRTPlanner::rrtStar(const StatePVA& x_init, const StatePVA& x_final, int n,
     }
     kd_res_free(p_bcwd_nbr_set); //reset kd tree range query
 
-    if (x_near == nullptr) 
+    size_t n_r_p = regional_parents.size();
+    RRTNode* sampled_node(nullptr);
+    if (x_near == nullptr && n_r_p > 0) 
     {
-      size_t n_r_p = regional_parents.size();
-      // ROS_ERROR_STREAM("regional_parents num: " << n_r_p);
-      if (n_r_p > 0)
+      Trajectory local_opt_traj;
+      for (size_t i = 0; i < n_r_p; ++i)
       {
-        Trajectory local_opt_traj;
-        for (size_t i = 0; i < n_r_p; ++i)
+        ros::Time r_o_ts = ros::Time::now();
+        bool regional_opt_result = regionalOpt(regional_seg[i], collide_pts[i], collide_timestamp[i]);
+        ROS_ERROR_STREAM("regional_opt costs " << 1e3 * (ros::Time::now() - r_o_ts).toSec() << " ms. Result: " << regional_opt_result);
+        // getchar();
+        if (regional_opt_result)
         {
-          bool regional_opt_result(false);
-          ros::Time r_o_ts = ros::Time::now();
+          optimizer_ptr_->getTraj(local_opt_traj);
 
-          CoefficientMat coeff1 = regional_seg[i].getCoeffMat(), coeff2;
-          double duration1 = regional_seg[i].getDuration() / 2.0;
-          Trajectory pre_regional_traj;
-          pre_regional_traj.reserve(2);
-          pre_regional_traj.emplace_back(Piece(duration1, coeff1));
-          regional_seg[i].cutPiece(regional_seg[i], duration1, coeff2);
-          pre_regional_traj.emplace_back(Piece(duration1, coeff2));
-          if (searcher_->AstarSearch(pos_checker_ptr_->getResolution(), collide_pts[i].first, collide_pts[i].second))
+          /* regional optimization succeeds when find parent, then:
+           * 1. add nodes of the local traj to rrt and kd_tree; 
+           */
+          //sample rejection
+          int n_mid_with_last_pt = local_opt_traj.getPieceNum();
+          double cost[n_mid_with_last_pt];
+          x_rand.tail(3) = local_opt_traj.getAcc(local_opt_traj.getTotalDuration());
+          if(bvp_.solve(x_rand, goal_node_->x, ACC_KNOWN))
           {
-            vector<Eigen::Vector3d> grid_path = searcher_->getPath();
-            // vis_ptr_->visualizeKnots(grid_path, pos_checker_ptr_->getLocalTime());
-
-            std::vector<pair<int, int>> seg_num_obs_size;  //first: # of segment in a traj; second: number of attract_pt in this segment. 
-            std::vector<double> t_s, t_e; // each attract_pt's timestamp of start and end in its corresponding segment. Size should be the same as the sum of seg_num_obs_size.second.
-            std::vector<Eigen::Vector3d> attract_pts;
-            pos_checker_ptr_->getRegionalAttractPts(pre_regional_traj, grid_path, collide_timestamp[i], seg_num_obs_size, attract_pts, t_s, t_e);
-            if (!optimizer_ptr_->initialize(pre_regional_traj, TrajOptimizer::SMOOTH_HOMO_OBS))
+            double regional_traj_cost = local_opt_traj.calCost(rho_, cost);
+            if (regional_parents[i]->cost_from_start + regional_traj_cost + bvp_.getCostStar() >= goal_node_->cost_from_start) 
+            {
+              // ROS_WARN("regionally optimized but sample rejected");
               continue;
-            regional_opt_result = optimizer_ptr_->solveRegionalOpt(seg_num_obs_size, attract_pts, t_s, t_e);
+            }
           }
-          ROS_ERROR_STREAM("regional_opt costs " << 1e3 * (ros::Time::now() - r_o_ts).toSec() << " ms. Result: " << regional_opt_result);
-          // getchar();
-          if (regional_opt_result)
+          else
           {
-            optimizer_ptr_->getTraj(local_opt_traj);
-
-            /* regional optimization success, then:
-              * 1. add nodes of the local traj to rrt and kd_tree; 
-              * 2. rewire.
-              * */
-            //sample rejection
-            int n_mid_with_last_pt = local_opt_traj.getPieceNum();
-            double cost[n_mid_with_last_pt];
-            x_rand.tail(3) = local_opt_traj.getAcc(local_opt_traj.getTotalDuration());
-            if(bvp_.solve(x_rand, goal_node_->x, ACC_KNOWN))
-            {
-              double regional_traj_cost(0.0);
-              for (int j = 0; j < n_mid_with_last_pt; j++)
-              {
-                cost[j] = local_opt_traj[j].calCost(rho_); //calculate cost of one piece 
-                regional_traj_cost += cost[j];
-              }
-              if (regional_parents[i]->cost_from_start + regional_traj_cost + bvp_.getCostStar() >= goal_node_->cost_from_start) 
-              {
-                // ROS_WARN("regionally optimized but sample rejected");
-                continue;
-              }
-            }
-            else
-            {
-              ROS_ERROR("sth. wrong with the bvp solver");
-            }
-
-            if (debug_vis_)
-              local_opt_traj.sampleWholeTrajectory(&region_traj_vis_x);
-            // ROS_WARN("regional optimized");
-            StatePVA mid_x; 
-            Vector3d pos, vel, acc;
-            RRTNode *curr_node_in_regional_traj(nullptr), *last_node(nullptr);
-            for (int j = 0; j < n_mid_with_last_pt; j++)
-            {
-              double tau = local_opt_traj[j].getDuration();
-              pos = local_opt_traj[j].getPos(tau);
-              vel = local_opt_traj[j].getVel(tau);
-              acc = local_opt_traj[j].getAcc(tau);
-              mid_x.segment(0, 3) = pos;
-              mid_x.segment(3, 3) = vel;
-              mid_x.segment(6, 3) = acc;
-              /* 1.1 add the randomly sampled node to rrt_tree */
-              curr_node_in_regional_traj = start_tree_[valid_start_tree_node_nums_++]; 
-              curr_node_in_regional_traj->x = mid_x;
-              if (j == 0)
-              {
-                curr_node_in_regional_traj->parent = regional_parents[i];
-                regional_parents[i]->children.push_back(curr_node_in_regional_traj);
-                curr_node_in_regional_traj->cost_from_start = regional_parents[i]->cost_from_start + cost[j];
-                curr_node_in_regional_traj->tau_from_start = regional_parents[i]->tau_from_start + tau;
-              }
-              else
-              {
-                curr_node_in_regional_traj->parent = last_node;
-                last_node->children.push_back(curr_node_in_regional_traj);
-                curr_node_in_regional_traj->cost_from_start = last_node->cost_from_start + cost[j];
-                curr_node_in_regional_traj->tau_from_start = last_node->tau_from_start + tau;
-              }
-              curr_node_in_regional_traj->cost_from_parent = cost[j];
-              curr_node_in_regional_traj->tau_from_parent = tau;
-              curr_node_in_regional_traj->poly_seg = local_opt_traj[j];
-              last_node = curr_node_in_regional_traj;
-              /* 1.2 add the randomly sampled node to kd_tree */
-              // kd_insert3(kd_tree, mid_x[0], mid_x[1], mid_x[2], curr_node_in_regional_traj);
-            }
-            
-            /* try to connect to goal after a valid tree node found */ 
-            CoefficientMat coeff;
-            bvp_.getCoeff(coeff);
-            Piece seg2goal = Piece(bvp_.getTauStar(), coeff);
-            bool connected_to_goal = checkSegmentConstraints(seg2goal);
-            if (connected_to_goal && goal_node_->cost_from_start > curr_node_in_regional_traj->cost_from_start + bvp_.getCostStar()) 
-            {
-              /*-- if commented, multiple nodes can connect to goal, but goal still has only one parent --*/
-              if (goal_node_->parent) 
-              {
-                goal_node_->parent->children.remove(goal_node_);
-              }
-              goal_node_->parent = curr_node_in_regional_traj;
-              goal_node_->cost_from_parent = bvp_.getCostStar();
-              goal_node_->tau_from_parent = bvp_.getTauStar();
-              goal_node_->cost_from_start = curr_node_in_regional_traj->cost_from_start + goal_node_->cost_from_parent;
-              goal_node_->tau_from_start = curr_node_in_regional_traj->tau_from_start + goal_node_->tau_from_parent;
-              CoefficientMat goal_coeff;
-              bvp_.getCoeff(goal_coeff);
-              goal_node_->poly_seg = Piece(goal_node_->tau_from_parent, goal_coeff);
-              curr_node_in_regional_traj->children.push_back(goal_node_);
-              goal_found = true;
-              ROS_WARN_STREAM("curr cost: " << goal_node_->cost_from_start);
-              if (test_convergency_)
-              {
-                double curr_general_cost = goal_node_->cost_from_start;
-                ros::Time curr_goal_found_time = ros::Time::now();
-                double curr_traj_use_time_ = (ros::Time::now() - t_start_).toSec();
-                std::vector<double> durs;
-                std::vector<CoefficientMat> coeffMats;
-                RRTNodePtr node = goal_node_;
-                while (node->parent) 
-                {
-                  durs.push_back(node->poly_seg.getDuration());
-                  coeffMats.push_back(node->poly_seg.getCoeffMat());
-                  node = node->parent;
-                }
-                std::reverse(std::begin(durs), std::end(durs));
-                std::reverse(std::begin(coeffMats), std::end(coeffMats));
-                traj_list_.emplace_back(durs, coeffMats);
-                solution_cost_list_.emplace_back(curr_general_cost);
-                solution_time_list_.emplace_back(curr_traj_use_time_);
-              }
-              // ROS_WARN_STREAM("[KRRT]: goal found at " << (ros::Time::now() - rrt_start_time).toSec() << " s , cost: " << goal_node_->cost_from_start << ", tau: " << goal_node_->tau_from_start);
-              if (first_time_find_goal) 
-              {
-                first_general_cost = goal_node_->cost_from_start;
-                first_goal_found_time = ros::Time::now();
-                first_traj_use_time_ = (first_goal_found_time - t_start_).toSec();
-                first_time_find_goal = false;
-                std::vector<double> durs;
-                std::vector<CoefficientMat> coeffMats;
-                RRTNodePtr node = goal_node_;
-                while (node->parent) 
-                {
-                  durs.push_back(node->poly_seg.getDuration());
-                  coeffMats.push_back(node->poly_seg.getCoeffMat());
-                  node = node->parent;
-                }
-                std::reverse(std::begin(durs), std::end(durs));
-                std::reverse(std::begin(coeffMats), std::end(coeffMats));
-                first_traj_ = Trajectory(durs, coeffMats);
-              }
-              if (stop_after_first_traj_found_) break; //stop searching after first time find the goal?
-            }
-            break;
+            ROS_ERROR("sth. wrong with the bvp solver");
           }
+
+          if (debug_vis_)
+            local_opt_traj.sampleWholeTrajectory(&region_traj_vis_x);
+          // ROS_WARN("regional optimized");
+          StatePVA mid_x; 
+          Vector3d pos, vel, acc;
+          RRTNode *curr_node_in_regional_traj(nullptr), *last_node(nullptr);
+          for (int j = 0; j < n_mid_with_last_pt; j++)
+          {
+            double tau = local_opt_traj[j].getDuration();
+            pos = local_opt_traj[j].getPos(tau);
+            vel = local_opt_traj[j].getVel(tau);
+            acc = local_opt_traj[j].getAcc(tau);
+            mid_x.segment(0, 3) = pos;
+            mid_x.segment(3, 3) = vel;
+            mid_x.segment(6, 3) = acc;
+            /* 1.1 add the randomly sampled node to rrt_tree */
+            if (j == 0) 
+              curr_node_in_regional_traj = addTreeNode(regional_parents[i], mid_x, local_opt_traj[j], cost[j], tau);
+            else 
+              curr_node_in_regional_traj = addTreeNode(last_node, mid_x, local_opt_traj[j], cost[j], tau);
+            last_node = curr_node_in_regional_traj;
+          }
+          /* 1.2 add the randomly sampled node to kd_tree */
+          kd_insert3(kd_tree, mid_x[0], mid_x[1], mid_x[2], curr_node_in_regional_traj);
+          sampled_node = curr_node_in_regional_traj;
+          break;
         }
       }
-      else //no valid parent found and no regional opt condition satisfied, sample next
-      {
-        continue;
-      }
     } 
-    else 
+    else if (x_near != nullptr)
     {
-      /* parent found within radius, then: 
-       * 1.add a node to rrt and kd_tree; 
-       * 2.rewire. 
-       * */
-
+      /* parent found within radius, then add a node to rrt and kd_tree */
       //sample rejection
-      x_rand.segment(6, 3) = find_parent_seg.getAcc(tau_from_p);
+      Vector3d calculated_acc = find_parent_seg.getAcc(tau_from_p);
+      if (calculated_acc.norm() >= acc_limit_)
+        continue;
+      x_rand.tail(3) = calculated_acc;
       if(bvp_.solve(x_rand, goal_node_->x, ACC_KNOWN))
       {
         if (min_dist + bvp_.getCostStar() >= goal_node_->cost_from_start) 
@@ -560,274 +445,175 @@ int KRRTPlanner::rrtStar(const StatePVA& x_init, const StatePVA& x_final, int n,
       {
         ROS_ERROR("sth. wrong with the bvp solver");
       }
-
       /* 1.1 add the randomly sampled node to rrt_tree */
-      // ROS_INFO("add the randomly sampled node to rrt_tree");
-      RRTNode* sampled_node = start_tree_[valid_start_tree_node_nums_++]; 
-      sampled_node->x = x_rand;
-      sampled_node->parent = x_near;
-      sampled_node->cost_from_start = min_dist;
-      sampled_node->tau_from_start = tau_from_s;
-      sampled_node->cost_from_parent = cost_from_p;
-      sampled_node->tau_from_parent = tau_from_p;
-      sampled_node->poly_seg = find_parent_seg;
-      x_near->children.push_back(sampled_node);
-          
+      sampled_node = addTreeNode(x_near, x_rand, find_parent_seg, min_dist, tau_from_s, cost_from_p, tau_from_p);
+
       /* 1.2 add the randomly sampled node to kd_tree */
       kd_insert3(kd_tree, x_rand[0], x_rand[1], x_rand[2], sampled_node);
-      
-      /* try to connect to goal after a valid tree node found */ 
-      CoefficientMat coeff;
-      bvp_.getCoeff(coeff);
-      Piece seg2goal = Piece(bvp_.getTauStar(), coeff);
-      // bool connected_to_goal = checkSegmentConstraints(seg2goal);
-      bool vel_cons = seg2goal.checkMaxVelRate(vel_limit_);
-      bool acc_cons = seg2goal.checkMaxAccRate(acc_limit_);
-      bool jerk_cons = seg2goal.checkMaxJerkRate(jerk_limit_);
-      pair<Vector3d, Vector3d> collide_pts_one_seg;
-      pair<double, double> t_s_e;
-      bool need_region_opt(false);
-      bool pos_cons = pos_checker_ptr_->checkPolySeg(seg2goal, collide_pts_one_seg, t_s_e, need_region_opt);
-      bool connected_to_goal = vel_cons && acc_cons && jerk_cons && pos_cons;
-      if (connected_to_goal && goal_node_->cost_from_start > min_dist + bvp_.getCostStar()) 
+    }
+    /* end of find parent */
+
+    if (sampled_node == nullptr) // neither w/ or w/o RO found no parent
+    {
+      continue;
+    }
+
+    /* 1. try to connect to goal after a valid tree node found */
+    bool new_solution(false); 
+    CoefficientMat coeff;
+    bvp_.getCoeff(coeff);
+    Piece seg2goal = Piece(bvp_.getTauStar(), coeff);
+    // bool connected_to_goal = checkSegmentConstraints(seg2goal);
+    bool vel_cons = seg2goal.checkMaxVelRate(vel_limit_);
+    bool acc_cons = seg2goal.checkMaxAccRate(acc_limit_);
+    bool jerk_cons = seg2goal.checkMaxJerkRate(jerk_limit_);
+    pair<Vector3d, Vector3d> collide_pts_one_seg;
+    pair<double, double> t_s_e;
+    bool need_region_opt(false);
+    bool pos_cons = pos_checker_ptr_->checkPolySeg(seg2goal, collide_pts_one_seg, t_s_e, need_region_opt);
+    bool connected_to_goal = vel_cons && acc_cons && jerk_cons && pos_cons;
+    if (connected_to_goal && goal_node_->cost_from_start > min_dist + bvp_.getCostStar()) 
+    {
+      changeNodeParent(goal_node_, sampled_node, seg2goal, bvp_.getCostStar(), bvp_.getTauStar());
+      ROS_WARN_STREAM("curr cost: " << goal_node_->cost_from_start);
+      goal_found = true;
+      new_solution = true;
+    }
+    else if (need_region_opt && use_regional_opt_)
+    {
+      // ROS_ERROR("start regional optimize to goal");
+      ros::Time r_o_ts = ros::Time::now();
+      bool ret = regionalOpt(seg2goal, collide_pts_one_seg, t_s_e);
+      // ROS_ERROR_STREAM("regional_opt costs " << 1e3 * (ros::Time::now() - r_o_ts).toSec() << " ms");
+      if (ret)
       {
-        /*-- if commented, multiple nodes can connect to goal, but goal still has only one parent --*/
-        if (goal_node_->parent) 
-        {
-          goal_node_->parent->children.remove(goal_node_);
-        }
-        /*-- --*/
-        goal_node_->parent = sampled_node;
-        goal_node_->cost_from_parent = bvp_.getCostStar();
-        goal_node_->tau_from_parent = bvp_.getTauStar();
-        goal_node_->cost_from_start = min_dist + goal_node_->cost_from_parent;
-        ROS_WARN_STREAM("curr cost: " << goal_node_->cost_from_start);
-        goal_node_->tau_from_start = tau_from_s + goal_node_->tau_from_parent;
-        CoefficientMat goal_coeff;
-        bvp_.getCoeff(goal_coeff);
-        goal_node_->poly_seg = Piece(goal_node_->tau_from_parent, goal_coeff);
-        sampled_node->children.push_back(goal_node_);
-        goal_found = true;
-        // TODO temp
-        if (test_convergency_)
-        {
-          double curr_general_cost = goal_node_->cost_from_start;
-          ros::Time curr_goal_found_time = ros::Time::now();
-          double curr_traj_use_time_ = (ros::Time::now() - t_start_).toSec();
-          std::vector<double> durs;
-          std::vector<CoefficientMat> coeffMats;
-          RRTNodePtr node = goal_node_;
-          while (node->parent) 
-          {
-            durs.push_back(node->poly_seg.getDuration());
-            coeffMats.push_back(node->poly_seg.getCoeffMat());
-            node = node->parent;
-          }
-          std::reverse(std::begin(durs), std::end(durs));
-          std::reverse(std::begin(coeffMats), std::end(coeffMats));
-          traj_list_.emplace_back(durs, coeffMats);
-          solution_cost_list_.emplace_back(curr_general_cost);
-          solution_time_list_.emplace_back(curr_traj_use_time_);
-        }
-        // ROS_WARN_STREAM("[KRRT]: goal found at " << (ros::Time::now() - rrt_start_time).toSec() << " s , cost: " << goal_node_->cost_from_start << ", tau: " << goal_node_->tau_from_start);
-        if (first_time_find_goal) 
-        {
-          first_general_cost = goal_node_->cost_from_start;
-          first_goal_found_time = ros::Time::now();
-          first_traj_use_time_ = (first_goal_found_time - t_start_).toSec();
-          first_time_find_goal = false;
-          std::vector<double> durs;
-          std::vector<CoefficientMat> coeffMats;
-          RRTNodePtr node = goal_node_;
-          while (node->parent) 
-          {
-            durs.push_back(node->poly_seg.getDuration());
-            coeffMats.push_back(node->poly_seg.getCoeffMat());
-            node = node->parent;
-          }
-          std::reverse(std::begin(durs), std::end(durs));
-          std::reverse(std::begin(coeffMats), std::end(coeffMats));
-          first_traj_ = Trajectory(durs, coeffMats);
-        }
-        if (stop_after_first_traj_found_) break; //stop searching after first time find the goal?
-      }
-      else if (need_region_opt && use_regional_opt_)
-      {
-        // ROS_ERROR("start regional optimize to goal");
         Trajectory local_opt_traj_to_goal;
-        ros::Time r_o_ts = ros::Time::now();
-        bool ret(false);
+        optimizer_ptr_->getTraj(local_opt_traj_to_goal);
+        if (debug_vis_) 
+          local_opt_traj_to_goal.sampleWholeTrajectory(&region_traj_vis_x);
+        int n_mid_with_last_pt = local_opt_traj_to_goal.getPieceNum();
+        double seg_cost[n_mid_with_last_pt];
+        double regional_traj_cost = local_opt_traj_to_goal.calCost(rho_, seg_cost);
+        if (goal_node_->cost_from_start <= regional_traj_cost + sampled_node->cost_from_start)
+          continue;
 
-        CoefficientMat coeff1 = seg2goal.getCoeffMat(), coeff2;
-        double duration1 = seg2goal.getDuration() / 2.0;
-        Trajectory pre_regional_traj;
-        pre_regional_traj.reserve(2);
-        pre_regional_traj.emplace_back(Piece(duration1, coeff1));
-        seg2goal.cutPiece(seg2goal, duration1, coeff2);
-        pre_regional_traj.emplace_back(Piece(duration1, coeff2));
-        if (searcher_->AstarSearch(pos_checker_ptr_->getResolution(), collide_pts_one_seg.first, collide_pts_one_seg.second))
+        // ROS_ERROR("regional optimize to goal success");
+        StatePVA mid_x; 
+        Vector3d pos, vel, acc;
+        RRTNode *curr_node_in_regional_traj(nullptr), *last_node(nullptr);
+        for (int j = 0; j < n_mid_with_last_pt; j++)
         {
-          vector<Eigen::Vector3d> grid_path = searcher_->getPath();
-          // vis_ptr_->visualizeKnots(grid_path, pos_checker_ptr_->getLocalTime());
-          std::vector<pair<int, int>> seg_num_obs_size;  //first: # of segment in a traj; second: number of attract_pt in this segment. 
-          std::vector<double> t_s, t_e; // each attract_pt's timestamp of start and end in its corresponding segment. Size should be the same as the sum of seg_num_obs_size.second.
-          std::vector<Eigen::Vector3d> attract_pts;
-          pos_checker_ptr_->getRegionalAttractPts(pre_regional_traj, grid_path, t_s_e, seg_num_obs_size, attract_pts, t_s, t_e);
-          if (!optimizer_ptr_->initialize(pre_regional_traj, TrajOptimizer::SMOOTH_HOMO_OBS))
-            continue;
-          ret = optimizer_ptr_->solveRegionalOpt(seg_num_obs_size, attract_pts, t_s, t_e);
-        }
-        // ROS_ERROR_STREAM("regional_opt costs " << 1e3 * (ros::Time::now() - r_o_ts).toSec() << " ms");
-        if (ret)
-        {
-          optimizer_ptr_->getTraj(local_opt_traj_to_goal);
-          if (debug_vis_)
-            local_opt_traj_to_goal.sampleWholeTrajectory(&region_traj_vis_x);
-          // ROS_ERROR("regional optimize to goal success");
-          StatePVA mid_x; 
-          Vector3d pos, vel, acc;
-          RRTNode *curr_node_in_regional_traj(nullptr), *last_node(nullptr);
-          int n_mid_with_last_pt = local_opt_traj_to_goal.getPieceNum();
-          for (int j = 0; j < n_mid_with_last_pt; j++)
-          {
-            double tau = local_opt_traj_to_goal[j].getDuration();
-            pos = local_opt_traj_to_goal[j].getPos(tau);
-            vel = local_opt_traj_to_goal[j].getVel(tau);
-            acc = local_opt_traj_to_goal[j].getAcc(tau);
-            mid_x.segment(0, 3) = pos;
-            mid_x.segment(3, 3) = vel;
-            mid_x.segment(6, 3) = acc;
-            /* 1.1 add the randomly sampled node to rrt_tree */
-            if (j == n_mid_with_last_pt - 1)
-              curr_node_in_regional_traj = goal_node_;
-            else
-              curr_node_in_regional_traj = start_tree_[valid_start_tree_node_nums_++]; 
-            curr_node_in_regional_traj->x = mid_x;
-            if (j == 0)
-            {
-              curr_node_in_regional_traj->parent = sampled_node;
-              sampled_node->children.push_back(curr_node_in_regional_traj);
-              double seg_cost = local_opt_traj_to_goal[j].calCost(rho_);//calculate cost of one piece 
-              curr_node_in_regional_traj->cost_from_parent = seg_cost;
-              curr_node_in_regional_traj->tau_from_parent = tau;
-              curr_node_in_regional_traj->cost_from_start = sampled_node->cost_from_start + seg_cost;
-              curr_node_in_regional_traj->tau_from_start = sampled_node->tau_from_start + tau;
-            }
-            else
-            {
-              curr_node_in_regional_traj->parent = last_node;
-              last_node->children.push_back(curr_node_in_regional_traj);
-              double seg_cost = local_opt_traj_to_goal[j].calCost(rho_);//calculate cost of one piece 
-              curr_node_in_regional_traj->cost_from_parent = seg_cost;
-              curr_node_in_regional_traj->tau_from_parent = tau;
-              curr_node_in_regional_traj->cost_from_start = last_node->cost_from_start + seg_cost;
-              curr_node_in_regional_traj->tau_from_start = last_node->tau_from_start + tau;
-            }
-            curr_node_in_regional_traj->poly_seg = local_opt_traj_to_goal[j];
-            last_node = curr_node_in_regional_traj;
-            /* 1.2 add the randomly sampled node to kd_tree */
-            // kd_insert3(kd_tree, mid_x[0], mid_x[1], mid_x[2], curr_node_in_regional_traj);
-          }
-          goal_found = true;
-          ROS_WARN_STREAM("curr cost: " << goal_node_->cost_from_start);
-          if (test_convergency_)
-          {
-            double curr_general_cost = goal_node_->cost_from_start;
-            ros::Time curr_goal_found_time = ros::Time::now();
-            double curr_traj_use_time_ = (ros::Time::now() - t_start_).toSec();
-            std::vector<double> durs;
-            std::vector<CoefficientMat> coeffMats;
-            RRTNodePtr node = goal_node_;
-            while (node->parent) 
-            {
-              durs.push_back(node->poly_seg.getDuration());
-              coeffMats.push_back(node->poly_seg.getCoeffMat());
-              node = node->parent;
-            }
-            std::reverse(std::begin(durs), std::end(durs));
-            std::reverse(std::begin(coeffMats), std::end(coeffMats));
-            traj_list_.emplace_back(durs, coeffMats);
-            solution_cost_list_.emplace_back(curr_general_cost);
-            solution_time_list_.emplace_back(curr_traj_use_time_);
-          }
-          if (first_time_find_goal) 
-          {
-            first_general_cost = goal_node_->cost_from_start;
-            first_goal_found_time = ros::Time::now();
-            first_traj_use_time_ = (first_goal_found_time - t_start_).toSec();
-            first_time_find_goal = false;
-            std::vector<double> durs;
-            std::vector<CoefficientMat> coeffMats;
-            RRTNodePtr node = goal_node_;
-            while (node->parent) 
-            {
-              durs.push_back(node->poly_seg.getDuration());
-              coeffMats.push_back(node->poly_seg.getCoeffMat());
-              node = node->parent;
-            }
-            std::reverse(std::begin(durs), std::end(durs));
-            std::reverse(std::begin(coeffMats), std::end(coeffMats));
-            first_traj_ = Trajectory(durs, coeffMats);
-          }
-          if (stop_after_first_traj_found_) break; //stop searching after first time find the goal?
-        }
-      }
-      /* end of try to connect to goal */
-
-      /* 3.rewire */
-      if (rewire) 
-      {
-        //kd_tree bounds search
-        struct kdres *p_fwd_nbr_set;
-        p_fwd_nbr_set = getForwardNeighbour(x_rand, kd_tree, tau_for_instance, fwd_radius_p);
-        if (p_fwd_nbr_set == nullptr)
-        {
-          ROS_ERROR("fwd kd range query error");
-          break;
-        }
-        while(!kd_res_end(p_fwd_nbr_set)) 
-        {
-          RRTNode* curr_node = (RRTNode*)kd_res_item_data(p_fwd_nbr_set);
-          if (curr_node == goal_node_ || curr_node == start_node_) 
-          {
-            // already tried to connect to goal from random sampled node
-            kd_res_next(p_fwd_nbr_set);
-            continue;
-          }
-          Piece seg_rewire;
-          if(bvp_.solve(x_rand, curr_node->x))
-          {
-            CoefficientMat coeff;
-            bvp_.getCoeff(coeff);
-            seg_rewire = Piece(bvp_.getTauStar(), coeff);
-          }
+          double tau = local_opt_traj_to_goal[j].getDuration();
+          pos = local_opt_traj_to_goal[j].getPos(tau);
+          vel = local_opt_traj_to_goal[j].getVel(tau);
+          acc = local_opt_traj_to_goal[j].getAcc(tau);
+          mid_x.segment(0, 3) = pos;
+          mid_x.segment(3, 3) = vel;
+          mid_x.segment(6, 3) = acc;
+          /* 1.1 add the randomly sampled node to rrt_tree */
+          if (j == 0)
+            curr_node_in_regional_traj = addTreeNode(sampled_node, mid_x, local_opt_traj_to_goal[j], seg_cost[j], tau);
+          else if (j == n_mid_with_last_pt - 1)
+            changeNodeParent(goal_node_, last_node, local_opt_traj_to_goal[j], seg_cost[j], tau);
           else
-          {
-            ROS_ERROR("sth. wrong with the bvp solver");
-          }
-          bool connected = checkSegmentConstraints(seg_rewire);
-          if (connected && sampled_node->cost_from_start + bvp_.getCostStar() < curr_node->cost_from_start) 
-          {
-            // If we can get to a node via the sampled_node faster than via it's existing parent then change the parent
-            curr_node->parent->children.remove(curr_node);  //DON'T FORGET THIS, remove it form its parent's children list
-            curr_node->parent = sampled_node;
-            curr_node->cost_from_parent = bvp_.getCostStar();
-            curr_node->tau_from_parent = bvp_.getTauStar();
-            curr_node->cost_from_start = sampled_node->cost_from_start + curr_node->cost_from_parent;
-            curr_node->tau_from_start = sampled_node->tau_from_start + curr_node->tau_from_parent;
-            CoefficientMat coeff;
-            bvp_.getCoeff(coeff);
-            curr_node->poly_seg = Piece(curr_node->tau_from_parent, coeff);
-            sampled_node->children.push_back(curr_node);
-          }
-          /* go to the next entry */
-          kd_res_next(p_fwd_nbr_set);
+            curr_node_in_regional_traj = addTreeNode(last_node, mid_x, local_opt_traj_to_goal[j], seg_cost[j], tau);
+          last_node = curr_node_in_regional_traj;
         }
-        kd_res_free(p_fwd_nbr_set);
-      }/* end of rewire */
-      
-    }/* end of find parent */
+        goal_found = true;
+        new_solution = true;
+        ROS_WARN_STREAM("curr cost: " << goal_node_->cost_from_start);
+      }
+    }
+    if (new_solution)
+    {
+      if (test_convergency_)
+      {
+        double curr_general_cost = goal_node_->cost_from_start;
+        ros::Time curr_goal_found_time = ros::Time::now();
+        double curr_traj_use_time_ = (ros::Time::now() - t_start_).toSec();
+        std::vector<double> durs;
+        std::vector<CoefficientMat> coeffMats;
+        RRTNodePtr node = goal_node_;
+        while (node->parent) 
+        {
+          durs.push_back(node->poly_seg.getDuration());
+          coeffMats.push_back(node->poly_seg.getCoeffMat());
+          node = node->parent;
+        }
+        std::reverse(std::begin(durs), std::end(durs));
+        std::reverse(std::begin(coeffMats), std::end(coeffMats));
+        traj_list_.emplace_back(durs, coeffMats);
+        solution_cost_list_.emplace_back(curr_general_cost);
+        solution_time_list_.emplace_back(curr_traj_use_time_);
+      }
+      if (first_time_find_goal) 
+      {
+        first_general_cost = goal_node_->cost_from_start;
+        first_goal_found_time = ros::Time::now();
+        first_traj_use_time_ = (first_goal_found_time - t_start_).toSec();
+        first_time_find_goal = false;
+        std::vector<double> durs;
+        std::vector<CoefficientMat> coeffMats;
+        RRTNodePtr node = goal_node_;
+        while (node->parent) 
+        {
+          durs.push_back(node->poly_seg.getDuration());
+          coeffMats.push_back(node->poly_seg.getCoeffMat());
+          node = node->parent;
+        }
+        std::reverse(std::begin(durs), std::end(durs));
+        std::reverse(std::begin(coeffMats), std::end(coeffMats));
+        first_traj_ = Trajectory(durs, coeffMats);
+      }
+      if (stop_after_first_traj_found_) 
+        break; //stop searching after first time find the goal?
+    }
+    /* end of try to connect to goal */
+
+    /* 2.rewire */
+    if (rewire) 
+    {
+      //kd_tree bounds search
+      struct kdres *p_fwd_nbr_set;
+      p_fwd_nbr_set = getForwardNeighbour(x_rand, kd_tree, tau_for_instance, fwd_radius_p);
+      if (p_fwd_nbr_set == nullptr)
+      {
+        ROS_ERROR("fwd kd range query error");
+        break;
+      }
+      while(!kd_res_end(p_fwd_nbr_set)) 
+      {
+        RRTNode* curr_node = (RRTNode*)kd_res_item_data(p_fwd_nbr_set);
+        if (curr_node == goal_node_ || curr_node == start_node_) 
+        {
+          // already tried to connect to goal from random sampled node
+          kd_res_next(p_fwd_nbr_set);
+          continue;
+        }
+        Piece seg_rewire;
+        if(bvp_.solve(x_rand, curr_node->x))
+        {
+          CoefficientMat coeff;
+          bvp_.getCoeff(coeff);
+          seg_rewire = Piece(bvp_.getTauStar(), coeff);
+        }
+        else
+        {
+          ROS_ERROR("sth. wrong with the bvp solver");
+        }
+        bool connected = checkSegmentConstraints(seg_rewire);
+        if (connected && sampled_node->cost_from_start + bvp_.getCostStar() < curr_node->cost_from_start) 
+        {
+          // If we can get to a node via the sampled_node faster than via it's existing parent then change the parent
+          changeNodeParent(curr_node, sampled_node, seg_rewire, bvp_.getCostStar(), bvp_.getTauStar());
+        }
+        /* go to the next entry */
+        kd_res_next(p_fwd_nbr_set);
+      }
+      kd_res_free(p_fwd_nbr_set);
+    }/* end of rewire */
   }/* end of sample once */
+  t_end_ = ros::Time::now();
 
   vis_x.clear();
   vector<Vector3d> knots;
@@ -840,8 +626,7 @@ int KRRTPlanner::rrtStar(const StatePVA& x_init, const StatePVA& x_final, int n,
 
   if (goal_found) 
   {
-    final_goal_found_time = ros::Time::now();
-    final_traj_use_time_ = (final_goal_found_time - t_start_).toSec();
+    final_traj_use_time_ = (t_end_ - t_start_).toSec();
     fillTraj(goal_node_, traj_);  
     /* for traj vis */
     ROS_INFO_STREAM("[KRRT]: total sample times: " << idx);
@@ -852,7 +637,7 @@ int KRRTPlanner::rrtStar(const StatePVA& x_init, const StatePVA& x_final, int n,
   else if (allow_close_goal_ && valid_start_tree_node_nums_ > 2)
   {
     ROS_WARN("Not connectting to goal, choose a bypass");
-    final_goal_found_time = ros::Time::now();
+    t_end_ = ros::Time::now();
     chooseBypass(close_goal_node_, start_node_);
     fillTraj(close_goal_node_, traj_);  
     /* for traj vis */
@@ -863,7 +648,7 @@ int KRRTPlanner::rrtStar(const StatePVA& x_init, const StatePVA& x_final, int n,
     double final_traj_len(0.0), final_traj_duration(0.0), final_traj_acc_itg(0.0), final_traj_jerk_itg(0.0);
     int final_traj_seg_nums(0);
     evaluateTraj(traj_, final_traj_duration, final_traj_len, final_traj_seg_nums, final_traj_acc_itg, final_traj_jerk_itg);
-    final_traj_use_time_ = final_goal_found_time.toSec()-t_start_.toSec();
+    final_traj_use_time_ = t_end_.toSec()-t_start_.toSec();
     ROS_INFO_STREAM("[KRRT]: total sample times: " << idx);
     ROS_INFO_STREAM("[KRRT]: valid sample times: " << valid_sample_nums);
     ROS_INFO_STREAM("[KRRT]: valid tree node nums: " << valid_start_tree_node_nums_);
@@ -998,6 +783,82 @@ struct kdres *KRRTPlanner::getBackwardNeighbour(const StatePVA& x1, struct kdtre
     // getchar();
   }
   return kd_nearest_range3(kd_tree, expNegATau_x1[0], expNegATau_x1[1], expNegATau_x1[2], radius_p);
+}
+
+inline RRTNodePtr KRRTPlanner::addTreeNode(RRTNodePtr& parent, const StatePVA& state, const Piece& piece, 
+                                           const double& cost_from_start, const double& tau_from_start, 
+                                           const double& cost_from_parent, const double& tau_from_parent)
+{
+  RRTNodePtr new_node_ptr = start_tree_[valid_start_tree_node_nums_++];
+  new_node_ptr->parent = parent;
+  parent->children.push_back(new_node_ptr);
+  new_node_ptr->x = state;
+  new_node_ptr->poly_seg = piece;
+  new_node_ptr->cost_from_start = cost_from_start;
+  new_node_ptr->tau_from_start = tau_from_start;
+  new_node_ptr->cost_from_parent = cost_from_parent;
+  new_node_ptr->tau_from_parent = tau_from_parent;
+  return new_node_ptr;
+}
+
+inline RRTNodePtr KRRTPlanner::addTreeNode(RRTNodePtr& parent, const StatePVA& state, const Piece& piece, 
+                                           const double& cost_from_parent, const double& tau_from_parent)
+{
+  RRTNodePtr new_node_ptr = start_tree_[valid_start_tree_node_nums_++];
+  new_node_ptr->parent = parent;
+  parent->children.push_back(new_node_ptr);
+  new_node_ptr->x = state;
+  new_node_ptr->poly_seg = piece;
+  new_node_ptr->cost_from_start = parent->cost_from_start + cost_from_parent;
+  new_node_ptr->tau_from_start = parent->tau_from_start + tau_from_parent;
+  new_node_ptr->cost_from_parent = cost_from_parent;
+  new_node_ptr->tau_from_parent = tau_from_parent;
+  return new_node_ptr;
+}
+
+inline void KRRTPlanner::changeNodeParent(RRTNodePtr& node, RRTNodePtr& parent, const Piece& piece, 
+                                           const double& cost_from_parent, const double& tau_from_parent)
+{
+  if (node->parent)
+    node->parent->children.remove(node);  //DON'T FORGET THIS, remove it form its parent's children list
+  node->parent = parent;
+  node->cost_from_parent = cost_from_parent;
+  node->tau_from_parent = tau_from_parent;
+  node->cost_from_start = parent->cost_from_start + cost_from_parent;
+  node->tau_from_start = parent->tau_from_start + tau_from_parent;
+  node->poly_seg = piece;
+  parent->children.push_back(node);
+}
+
+inline bool KRRTPlanner::regionalOpt(const Piece& oringin_seg, const pair<Vector3d, Vector3d>& collide_pts_one_seg, const pair<double, double>& t_s_e)
+{
+  CoefficientMat coeff1 = oringin_seg.getCoeffMat(), coeff2;
+  double duration1 = oringin_seg.getDuration() / 2.0;
+  Trajectory pre_regional_traj;
+  pre_regional_traj.reserve(2);
+  pre_regional_traj.emplace_back(Piece(duration1, coeff1));
+  oringin_seg.cutPiece(oringin_seg, duration1, coeff2);
+  pre_regional_traj.emplace_back(Piece(duration1, coeff2));
+  if (searcher_->AstarSearch(pos_checker_ptr_->getResolution(), collide_pts_one_seg.first, collide_pts_one_seg.second))
+  {
+    vector<Eigen::Vector3d> grid_path = searcher_->getPath();
+    // vis_ptr_->visualizeKnots(grid_path, pos_checker_ptr_->getLocalTime());
+    std::vector<pair<int, int>> seg_num_obs_size;  //first: # of segment in a traj; second: number of attract_pt in this segment. 
+    std::vector<double> t_s, t_e; // each attract_pt's timestamp of start and end in its corresponding segment. Size should be the same as the sum of seg_num_obs_size.second.
+    std::vector<Eigen::Vector3d> attract_pts;
+    pos_checker_ptr_->getRegionalAttractPts(pre_regional_traj, grid_path, t_s_e, seg_num_obs_size, attract_pts, t_s, t_e);
+    if (!optimizer_ptr_->initialize(pre_regional_traj, TrajOptimizer::SMOOTH_HOMO_OBS))
+    {
+      cout << "1 " << endl;
+      return false;
+    }
+    return (optimizer_ptr_->solveRegionalOpt(seg_num_obs_size, attract_pts, t_s, t_e));
+  }
+  else
+  {
+    cout << "2 " << endl;
+    return false;
+  }
 }
 
 inline double KRRTPlanner::dist(const StatePVA& x0, const StatePVA& x1)
