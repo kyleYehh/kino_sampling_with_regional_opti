@@ -17,9 +17,8 @@ __Authors__: [Hongkai YE](https://kyleyehh.github.io/) and [Fei GAO](https://ust
 __Related Paper__:
 Integrating Fast Regional Optimization into Sampling-based Kinodynamic Planning for Multirotor Flight. 
 
-[[Preprint]](https://arxiv.org/abs/2103.05519), 
-[[Bilibili]](https://www.bilibili.com/video/BV1L5411P7GV/), 
-[[YouTube]](https://www.youtube.com/watch?v=gJ6ttY34iWA)
+[[Preprint]](https://github.com/kyleYehh/kino_sampling_with_regional_opti/blob/main/Efficient%20Sampling%20based%20Multirotors%20Kinodynamic%20Planning%20with%20Fast%20Regional%20Optimization%20and%20Post%20Refining.pdf), 
+[[Video]](https://github.com/kyleYehh/kino_sampling_with_regional_opti/blob/main/long.m4v), 
 
 ## Run The Simulation
 The repo has been tested on Ubuntu 16.04 and 18.04 with ros-desktop-full installation.
